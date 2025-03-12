@@ -2,6 +2,29 @@
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
 
+## [0.2.0] - 2025-03-12
+
+### Added
+- Qdrant vector database for code context storage
+- Python helper library for Qdrant management (qdrant_helper.py)
+- Sentence Transformers integration for code embedding
+- RAG Framework using LlamaIndex and LiteLLM
+- Testing scripts for Qdrant, embedding, and RAG functionality
+- Context-aware code generation capabilities
+- Support for handling complex code fragments
+- Test examples for data loading, processing, and model training
+
+### Changed
+- Updated Docker Compose configuration to include Qdrant
+- Expanded directory structure for Phase 2 components
+- Enhanced documentation for vector database usage
+- Improved error handling and fallback mechanisms in API calls
+
+### Fixed
+- Compatibility issues with different embedding models
+- Model name handling for Ollama integration
+- API communication with LiteLLM
+
 ## [0.1.1] - 2025-03-12
 
 ### Added
