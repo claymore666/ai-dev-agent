@@ -1,0 +1,43 @@
+model_list:
+  - model_name: ollama-codellama
+    litellm_params:
+      model: ollama/codellama
+      api_base: "http://pluto.fritz.box:11434"
+
+  - model_name: ollama-llama2
+    litellm_params:
+      model: ollama/llama2
+      api_base: "http://pluto.fritz.box:11434"
+
+litellm_settings:
+  # Disable caching for now to simplify setup
+  cache: false
+  
+  # Logging settings
+  verbose: true
+  
+  # Default model
+  default_model: ollama-llama2
+
+# Prompt templates for code generation
+prompt_templates:
+  ollama-codellama:
+    completion: 
+      system: |
+        You are an expert Python developer tasked with writing high-quality, maintainable code.
+        Provide clear, concise code with appropriate comments.
+        Follow PEP8 style guidelines and best practices.
+      user: "{prompt}"
+      
+  ollama-llama2:
+    completion: 
+      system: |
+        You are an expert Python developer tasked with writing high-quality, maintainable code.
+        Provide clear, concise code with appropriate comments.
+        Follow PEP8 style guidelines and best practices.
+      user: "{prompt}"
+
+# Server configuration
+server:
+  host: 0.0.0.0
+  port: 4000
