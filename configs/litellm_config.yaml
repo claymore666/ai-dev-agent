@@ -10,8 +10,13 @@ model_list:
       api_base: "http://pluto.fritz.box:11434"
 
 litellm_settings:
-  # Disable caching for now to simplify setup
-  cache: false
+  # Enable caching with Redis
+  cache: true
+  cache_params:
+    type: "redis"
+    host: "redis"  # Using the service name from docker-compose
+    port: 6379
+    # No password by default as per your redis config
   
   # Logging settings
   verbose: true
