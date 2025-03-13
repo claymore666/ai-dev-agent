@@ -1,32 +1,109 @@
-#!/usr/bin/env python3
-"""
-Context Selector for AI Development Agent
-
-This module provides advanced context selection strategies for code generation,
-considering code structure, dependencies, and relevance to the current task.
-"""
-
 import os
 import sys
-import ast
+import json
 import logging
+import hashlib
+import requests
+import yaml
 from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
 
-# Import project modules
-from code_rag import CodeRAG
-
-# Configure logging
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("context_selector")
 
+# Import Redis for caching
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    logger.warning("Redis not available for query classification caching")
+
+# Load configuration from the same file as LiteLLM
+def load_config():
+    """Load configuration from LiteLLM config file"""
+    config_paths = [
+        os.path.join('configs', 'litellm_config.yaml'),  # Standard location in project
+        os.environ.get('CONFIG_FILE_PATH', ''),          # From environment variable
+        '/app/config.yaml'                               # Docker container location
+    ]
+    
+    for path in config_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    config = yaml.safe_load(f)
+                logger.info(f"Loaded configuration from {path}")
+                return config
+            except Exception as e:
+                logger.warning(f"Error loading config from {path}: {e}")
+    
+    logger.warning("No configuration file found, using defaults")
+    return {}
+
+# Load configuration
+config = load_config()
+
+# Redis configuration (from LiteLLM settings)
+litellm_settings = config.get('litellm_settings', {})
+cache_params = litellm_settings.get('cache_params', {})
+
+REDIS_HOST = cache_params.get('host', 'localhost')
+REDIS_PORT = int(cache_params.get('port', 6379))
+REDIS_PASSWORD = cache_params.get('password', '')
+REDIS_DB = int(cache_params.get('db', 0))
+REDIS_CACHE_EXPIRY = int(os.getenv("REDIS_CACHE_EXPIRY", "86400"))  # 1 day default
+
+# Server configuration
+server_config = config.get('server', {})
+LITELLM_HOST = os.getenv("LITELLM_HOST", server_config.get('host', 'localhost'))
+LITELLM_PORT = os.getenv("LITELLM_PORT", str(server_config.get('port', 8080)))
+LITELLM_API = f"http://{LITELLM_HOST}:{LITELLM_PORT}/v1/chat/completions"
+
+# Model configuration
+model_list = config.get('model_list', [])
+CLASSIFY_MODEL = None
+
+# Find a fast model for classification
+for model in model_list:
+    model_name = model.get('model_name', '')
+    # Prioritize smaller models like llama2 over larger ones like codellama for classification
+    if 'llama2' in model_name.lower():
+        CLASSIFY_MODEL = model_name
+        break
+
+# If no suitable model found, use the default model
+if not CLASSIFY_MODEL:
+    CLASSIFY_MODEL = litellm_settings.get('default_model', 'ollama-llama2')
+
+logger.info(f"Using model {CLASSIFY_MODEL} for query classification")
+
+# Try to set up Redis client
+redis_client = None
+if REDIS_AVAILABLE and litellm_settings.get('cache', False):
+    try:
+        redis_client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            password=REDIS_PASSWORD if REDIS_PASSWORD else None,
+            db=REDIS_DB,
+            socket_timeout=5
+        )
+        # Test connection
+        redis_client.ping()
+        logger.info("Redis connection established for query classification caching")
+    except Exception as e:
+        logger.warning(f"Failed to connect to Redis: {e}")
+        redis_client = None
+
 class ContextSelector:
     """Advanced context selection for code generation."""
     
-    def __init__(self, rag_system: CodeRAG):
+    def __init__(self, rag_system: Any):
         """
         Initialize the context selector.
         
@@ -34,13 +111,112 @@ class ContextSelector:
             rag_system: The RAG system to use for retrieving context
         """
         self.rag = rag_system
+    
+    def is_conversation_meta_query(self, query: str) -> bool:
+        """
+        Determine if a query is asking about the conversation itself using LLM classification.
         
+        Args:
+            query: The query string to analyze
+            
+        Returns:
+            True if the query is about the conversation, False otherwise
+        """
+        # Create a unique cache key based on the lowercase query
+        query_hash = hashlib.md5(query.lower().encode()).hexdigest()
+        cache_key = f"query_classification:{query_hash}"
+        
+        # Try to get result from cache if Redis is available
+        if redis_client:
+            try:
+                cached_result = redis_client.get(cache_key)
+                if cached_result:
+                    is_conversation = cached_result.decode('utf-8') == 'conversation'
+                    logger.debug(f"Cache hit for query classification: {query} -> {is_conversation}")
+                    return is_conversation
+            except Exception as e:
+                logger.warning(f"Redis cache lookup failed: {e}")
+        
+        # If not cached or cache lookup failed, use LLM to classify
+        is_conversation = self._classify_query_with_llm(query)
+        
+        # Cache the result if Redis is available
+        if redis_client:
+            try:
+                cache_value = 'conversation' if is_conversation else 'code'
+                redis_client.set(cache_key, cache_value, ex=REDIS_CACHE_EXPIRY)
+                logger.debug(f"Cached query classification: {query} -> {cache_value}")
+            except Exception as e:
+                logger.warning(f"Redis cache set failed: {e}")
+        
+        return is_conversation
+    
+    def _classify_query_with_llm(self, query: str) -> bool:
+        """
+        Use a lightweight LLM to classify the query as conversation-related or code-related.
+        
+        Args:
+            query: The query string to classify
+            
+        Returns:
+            True if the query is about the conversation, False otherwise
+        """
+        # Construct a simple, focused prompt for classification
+        prompt = {
+            "model": CLASSIFY_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a query classifier that categorizes user queries as either CONVERSATION or CODE. "
+                               "CONVERSATION queries are about the chat history, summarizing previous interactions, or the discussion flow. "
+                               "CODE queries are about programming, technical implementation, or software development. "
+                               "Respond with only a single word: either CONVERSATION or CODE."
+                },
+                {
+                    "role": "user",
+                    "content": f"Classify this query: \"{query}\""
+                }
+            ],
+            "max_tokens": 10,  # Keep response short for efficiency
+            "temperature": 0.1  # Low temperature for more deterministic classification
+        }
+        
+        try:
+            # Make API call to LiteLLM
+            response = requests.post(
+                LITELLM_API,
+                headers={"Content-Type": "application/json"},
+                json=prompt,
+                timeout=5  # Short timeout for quick classification
+            )
+            
+            if response.status_code == 200:
+                # Extract the classification from the response
+                result = response.json()
+                classification = result["choices"][0]["message"]["content"].strip().upper()
+                
+                # Determine if this is a conversation query
+                is_conversation = "CONVERSATION" in classification
+                logger.debug(f"LLM classified query: {query} -> {classification}")
+                
+                return is_conversation
+            else:
+                logger.warning(f"LiteLLM API error: {response.status_code} - {response.text}")
+                # Default to treating as a code query if classification fails
+                return False
+                
+        except Exception as e:
+            logger.warning(f"Query classification error: {e}")
+            # Default to treating as a code query if classification fails
+            return False
+    
     def select_context(
         self,
         query: str,
         project_id: str,
         max_contexts: int = 5,
-        context_strategy: str = "balanced"
+        context_strategy: str = "balanced",
+        session_manager = None
     ) -> List[Dict[str, Any]]:
         """
         Select relevant context for a query using advanced strategies.
@@ -54,341 +230,147 @@ class ContextSelector:
                 - "structural": Prioritize structurally related code
                 - "dependency": Prioritize code with dependencies
                 - "balanced": Balance between semantic and structural relevance
+                - "conversation": Use session history for conversation meta-queries
+                - "auto": Automatically select strategy based on query
+            session_manager: Optional session manager for accessing history
                 
         Returns:
             List of context fragments
         """
+        # Auto-detect if this is a conversation meta-query
+        if context_strategy == "auto":
+            if self.is_conversation_meta_query(query) and session_manager:
+                logger.info(f"Detected conversation meta-query: '{query}'")
+                context_strategy = "conversation"
+                logger.debug(f"Selected 'conversation' context strategy for query")
+            else:
+                # Use the original strategy selection for code queries
+                analysis = self.analyze_query_complexity(query)
+                context_strategy = analysis["optimal_strategy"]
+                logger.debug(f"Selected '{context_strategy}' context strategy for query")
+        
+        # Apply the selected strategy
         if context_strategy == "semantic":
             return self._semantic_context(query, project_id, max_contexts)
+        elif context_strategy == "conversation":
+            if session_manager:
+                return self._conversation_context(query, project_id, max_contexts, session_manager)
+            else:
+                logger.warning("No session manager provided for conversation context strategy, falling back to semantic")
+                return self._semantic_context(query, project_id, max_contexts)
         elif context_strategy == "structural":
             return self._structural_context(query, project_id, max_contexts)
         elif context_strategy == "dependency":
             return self._dependency_context(query, project_id, max_contexts)
         else:  # balanced
             return self._balanced_context(query, project_id, max_contexts)
-            
-    def _semantic_context(
+    
+    def _conversation_context(
         self,
         query: str,
         project_id: str,
-        max_contexts: int
-    ) -> List[Dict[str, Any]]:
-        """Retrieve context based on semantic similarity only."""
-        return self.rag.retrieve_relevant_code(
-            query=query,
-            project_id=project_id,
-            top_k=max_contexts
-        )
-        
-    def _structural_context(
-        self,
-        query: str,
-        project_id: str,
-        max_contexts: int
+        max_contexts: int,
+        session_manager = None
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve context prioritizing structural relationships.
-        Analyzes the query to identify code structures and retrieves
-        related classes, functions, etc.
-        """
-        # First get basic semantic results
-        semantic_results = self.rag.retrieve_relevant_code(
-            query=query,
-            project_id=project_id,
-            top_k=max_contexts * 2  # Get more results to filter
-        )
-        
-        if not semantic_results:
-            return []
-        
-        # Extract code structures mentioned in the query
-        structures = self._extract_code_structures(query)
-        
-        # Score results based on structural relevance
-        scored_results = []
-        for result in semantic_results:
-            base_score = result.get('score', 0.0)
-            
-            # Parse code to find structures
-            code_structures = self._extract_code_structures_from_code(result['text'])
-            
-            # Calculate structural similarity
-            structural_score = self._calculate_structural_similarity(
-                structures, code_structures
-            )
-            
-            # Combine scores
-            final_score = base_score * 0.7 + structural_score * 0.3
-            
-            scored_results.append({
-                **result,
-                'score': final_score,
-                '_structural_score': structural_score
-            })
-        
-        # Sort by final score and return top results
-        scored_results.sort(key=lambda x: x['score'], reverse=True)
-        return scored_results[:max_contexts]
-    
-    def _dependency_context(
-        self,
-        query: str,
-        project_id: str,
-        max_contexts: int
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve context prioritizing code with dependencies.
-        First finds the most relevant code, then adds its dependencies.
-        """
-        # First get basic semantic results
-        semantic_results = self.rag.retrieve_relevant_code(
-            query=query,
-            project_id=project_id,
-            top_k=max(2, max_contexts // 2)  # Fewer direct matches
-        )
-        
-        if not semantic_results:
-            return []
-        
-        # Find dependencies of the retrieved code
-        dependencies = self._find_dependencies(semantic_results)
-        
-        # Remove duplicates while preserving order
-        result_set = {r['text']: r for r in semantic_results}
-        for dep in dependencies:
-            if dep['text'] not in result_set:
-                result_set[dep['text']] = dep
-        
-        # Convert back to list and limit to max_contexts
-        results = list(result_set.values())
-        return results[:max_contexts]
-    
-    def _balanced_context(
-        self,
-        query: str,
-        project_id: str,
-        max_contexts: int
-    ) -> List[Dict[str, Any]]:
-        """
-        Balanced approach combining semantic, structural and dependency contexts.
-        Allocates portions of the max_contexts to each strategy.
-        """
-        # Allocate context slots
-        semantic_count = max(1, max_contexts // 3)
-        structural_count = max(1, max_contexts // 3)
-        dependency_count = max_contexts - semantic_count - structural_count
-        
-        # Get contexts from each strategy
-        semantic_results = self._semantic_context(query, project_id, semantic_count)
-        structural_results = self._structural_context(query, project_id, structural_count)
-        dependency_results = self._dependency_context(query, project_id, dependency_count)
-        
-        # Combine results, removing duplicates
-        result_set = {}
-        for result in semantic_results + structural_results + dependency_results:
-            if result['text'] not in result_set:
-                result_set[result['text']] = result
-        
-        # Convert back to list and limit to max_contexts
-        results = list(result_set.values())
-        return results[:max_contexts]
-    
-    def _extract_code_structures(self, text: str) -> Dict[str, List[str]]:
-        """
-        Extract code structures mentioned in text.
-        
-        Returns:
-            Dictionary with keys 'classes', 'functions', 'variables'
-        """
-        structures = {
-            'classes': [],
-            'functions': [],
-            'variables': []
-        }
-        
-        # Simple extraction based on keywords and patterns
-        # Class detection (UpperCamelCase)
-        import re
-        class_pattern = r'\b([A-Z][a-zA-Z0-9]*)\b'
-        classes = re.findall(class_pattern, text)
-        structures['classes'] = [c for c in classes if len(c) > 1]
-        
-        # Function detection (lowercase_with_underscores or camelCase)
-        function_pattern = r'\b([a-z][a-z0-9_]*(_[a-z0-9_]+)+)\b|\b([a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*)\b'
-        functions = re.findall(function_pattern, text)
-        # Flatten and clean function matches
-        flat_functions = []
-        for f_tuple in functions:
-            for f in f_tuple:
-                if f and len(f) > 2:
-                    flat_functions.append(f)
-        structures['functions'] = flat_functions
-        
-        # Variable detection (similar to functions but filtering out common words)
-        variable_pattern = r'\b([a-z][a-z0-9_]*)\b'
-        variables = re.findall(variable_pattern, text)
-        common_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'has'}
-        structures['variables'] = [v for v in variables if len(v) > 1 and v not in common_words]
-        
-        return structures
-    
-    def _extract_code_structures_from_code(self, code: str) -> Dict[str, List[str]]:
-        """
-        Extract code structures from Python code.
-        
-        Returns:
-            Dictionary with keys 'classes', 'functions', 'variables'
-        """
-        structures = {
-            'classes': [],
-            'functions': [],
-            'variables': []
-        }
-        
-        try:
-            tree = ast.parse(code)
-            
-            # Extract classes
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    structures['classes'].append(node.name)
-                elif isinstance(node, ast.FunctionDef):
-                    structures['functions'].append(node.name)
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                    structures['variables'].append(node.id)
-        except Exception as e:
-            logger.warning(f"Failed to parse code: {e}")
-        
-        return structures
-    
-    def _calculate_structural_similarity(
-        self,
-        query_structures: Dict[str, List[str]],
-        code_structures: Dict[str, List[str]]
-    ) -> float:
-        """
-        Calculate structural similarity between query and code.
-        
-        Returns:
-            Similarity score (0.0 to 1.0)
-        """
-        if not query_structures or not code_structures:
-            return 0.0
-        
-        matches = 0
-        total = 0
-        
-        # Count matches for each structure type
-        for structure_type in ['classes', 'functions', 'variables']:
-            query_items = set(query_structures[structure_type])
-            code_items = set(code_structures[structure_type])
-            
-            # Count matches
-            common_items = query_items.intersection(code_items)
-            matches += len(common_items)
-            
-            # Count total items in query
-            total += len(query_items)
-        
-        # Avoid division by zero
-        if total == 0:
-            return 0.0
-        
-        return matches / total
-    
-    def _find_dependencies(
-        self, 
-        code_fragments: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Find dependencies of the given code fragments.
+        Retrieve context based on session history for conversation meta-queries.
         
         Args:
-            code_fragments: List of code fragments to find dependencies for
+            query: The query to retrieve context for
+            project_id: The project ID to filter by
+            max_contexts: Maximum number of context fragments to return
+            session_manager: Session manager instance to retrieve history
             
         Returns:
-            List of dependent code fragments
+            List of context fragments based on session history
         """
-        dependencies = []
+        results = []
         
-        # Extract structures from all fragments
-        fragment_structures = []
-        for fragment in code_fragments:
-            structures = self._extract_code_structures_from_code(fragment['text'])
-            fragment_structures.append(structures)
+        # Verify session manager is provided
+        if not session_manager:
+            logger.warning("No session manager provided for conversation context strategy")
+            return self._semantic_context(query, project_id, max_contexts)
         
-        # Collect all defined names
-        all_defined_names = set()
-        for structures in fragment_structures:
-            all_defined_names.update(structures['classes'])
-            all_defined_names.update(structures['functions'])
+        # Get active session
+        active_session = session_manager.get_active_session()
+        if not active_session:
+            logger.warning("No active session found for conversation context strategy")
+            return self._semantic_context(query, project_id, max_contexts)
         
-        # For each fragment, find imports and references to extract dependencies
-        for fragment in code_fragments:
-            # Extract imports and references
-            imports, references = self._extract_imports_and_references(fragment['text'])
+        # Get session history
+        history = session_manager.get_session_history(session_id=None, limit=20)  # Get recent history entries
+        
+        if not history:
+            logger.warning("No session history found for conversation context strategy")
+            return self._semantic_context(query, project_id, max_contexts)
+        
+        logger.info(f"Found {len(history)} session history entries for conversation context")
+        
+        # Convert history to context items
+        score_base = 1.0
+        for i, entry in enumerate(history):
+            # Skip entries that don't have commands or are irrelevant
+            if 'command' not in entry or entry.get('command') != 'generate':
+                continue
             
-            # Look for dependencies based on imports
-            for imp in imports:
-                # Search for code defining this import
-                if fragment.get('metadata', {}).get('project_id'):
-                    project_id = fragment['metadata']['project_id']
-                    dep_results = self.rag.retrieve_relevant_code(
-                        query=f"module {imp}",
-                        project_id=project_id,
-                        top_k=2
-                    )
-                    dependencies.extend(dep_results)
+            # Get prompt and result if available
+            prompt = entry.get('args', {}).get('prompt', '')
             
-            # Look for dependencies based on references
-            for ref in references:
-                if ref in all_defined_names:
-                    continue  # Skip if already defined in our fragments
-                
-                # Search for code defining this reference
-                if fragment.get('metadata', {}).get('project_id'):
-                    project_id = fragment['metadata']['project_id']
-                    dep_results = self.rag.retrieve_relevant_code(
-                        query=f"class {ref} OR function {ref}",
-                        project_id=project_id,
-                        top_k=2
-                    )
-                    dependencies.extend(dep_results)
+            if not prompt:
+                continue
+            
+            # Create a context item with decreasing scores for older items
+            score = score_base - (i * 0.05)  # Decrease score for older items
+            
+            context_text = f"User asked: {prompt}\n\n"
+            
+            # Add result if available (might be in different formats)
+            if 'result' in entry and entry['result'] == 'Success':
+                # For successful commands, extract any useful information
+                if 'args' in entry and 'output' in entry['args'] and entry['args']['output']:
+                    output_file = entry['args']['output']
+                    context_text += f"Output saved to file: {output_file}\n\n"
+                else:
+                    # Try to extract the generated code from command output
+                    context_text += "Command executed successfully\n\n"
+            
+            context_item = {
+                'text': context_text,
+                'metadata': {
+                    'type': 'conversation_history',
+                    'timestamp': entry.get('timestamp', ''),
+                    'command': entry.get('command', ''),
+                    'project_id': project_id,
+                    'name': 'Session History Item',
+                    'filename': 'session_history.txt'
+                },
+                'score': max(0.5, score)  # Ensure score doesn't go below 0.5
+            }
+            
+            results.append(context_item)
+            logger.debug(f"Added history item to context: {prompt[:50]}...")
         
-        return dependencies
+        # If we have few history items, supplement with semantic search
+        if len(results) < max_contexts:
+            semantic_results = self._semantic_context(
+                query, 
+                project_id, 
+                max_contexts - len(results)
+            )
+            
+            # Add semantic results with lower priority (lower scores)
+            for result in semantic_results:
+                if 'score' in result:
+                    result['score'] = result['score'] * 0.2  # Significantly reduce importance of semantic results
+                results.append(result)
+        
+        # Sort by score and limit to max_contexts
+        results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        
+        logger.info(f"Using {len(results[:max_contexts])} conversation context items for query")
+        return results[:max_contexts]
     
-    def _extract_imports_and_references(self, code: str) -> Tuple[Set[str], Set[str]]:
-        """
-        Extract imports and references from Python code.
-        
-        Returns:
-            Tuple of (imports, references)
-        """
-        imports = set()
-        references = set()
-        
-        try:
-            tree = ast.parse(code)
-            
-            # Extract imports
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for name in node.names:
-                        imports.add(name.name)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        imports.add(node.module)
-                
-                # Extract references
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                    references.add(node.id)
-                elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
-                    if isinstance(node.value, ast.Name):
-                        references.add(f"{node.value.id}.{node.attr}")
-        except Exception as e:
-            logger.warning(f"Failed to parse code for imports: {e}")
-        
-        return imports, references
+    # [Rest of the methods in the class remain the same]
     
     def analyze_query_complexity(self, query: str) -> Dict[str, Any]:
         """
@@ -400,12 +382,15 @@ class ContextSelector:
         Returns:
             Dictionary with analysis results
         """
+        # Check if this is a conversation meta-query first (moved to select_context for efficiency)
+        
         # Extract code structures
         structures = self._extract_code_structures(query)
         
         # Calculate complexity metrics
         word_count = len(query.split())
         structure_count = (
+            0 if not structures else
             len(structures['classes']) + 
             len(structures['functions']) + 
             len(structures['variables'])
@@ -428,58 +413,28 @@ class ContextSelector:
             "optimal_strategy": optimal_strategy
         }
 
+# Add these lines at the end of the file for testing
 if __name__ == "__main__":
-    """CLI interface for context selection testing."""
-    import argparse
+    # Test the LLM classification
+    from pprint import pprint
     
-    parser = argparse.ArgumentParser(description="Test context selection strategies")
-    parser.add_argument("--query", required=True, help="Query to test")
-    parser.add_argument("--project-id", required=True, help="Project ID to filter by")
-    parser.add_argument(
-        "--strategy", 
-        choices=["semantic", "structural", "dependency", "balanced", "auto"],
-        default="auto",
-        help="Context strategy to use (default: auto)"
-    )
-    parser.add_argument(
-        "--max-contexts", 
-        type=int,
-        default=5,
-        help="Maximum number of context fragments (default: 5)"
-    )
+    # Create a simple mock RAG system for testing
+    class MockRAG:
+        pass
     
-    args = parser.parse_args()
+    rag = MockRAG()
+    selector = ContextSelector(rag)
     
-    # Initialize RAG system
-    from code_rag import CodeRAG
-    rag = CodeRAG()
+    # Test various queries
+    test_queries = [
+        "Can you summarize our conversation?",
+        "What have we talked about so far?",
+        "Write a function to add two numbers",
+        "How do I implement a binary search tree?",
+        "Let's review what we've discussed",
+        "Generate a Python class for data processing"
+    ]
     
-    # Initialize context selector
-    context_selector = ContextSelector(rag)
-    
-    # Determine strategy
-    strategy = args.strategy
-    if strategy == "auto":
-        analysis = context_selector.analyze_query_complexity(args.query)
-        strategy = analysis["optimal_strategy"]
-        print(f"Auto-selected strategy: {strategy}")
-        print(f"Query analysis: {analysis}")
-    
-    # Select context
-    context = context_selector.select_context(
-        query=args.query,
-        project_id=args.project_id,
-        max_contexts=args.max_contexts,
-        context_strategy=strategy
-    )
-    
-    # Print results
-    print(f"\nRetrieved {len(context)} context fragments using {strategy} strategy:")
-    for i, fragment in enumerate(context):
-        score_display = f"{fragment.get('score', 0.0):.4f}" if fragment.get('score') is not None else "N/A"
-        print(f"\nContext {i+1} (Score: {score_display}):")
-        print(f"Filename: {fragment['metadata'].get('filename', 'unknown')}")
-        print(f"Type: {fragment['metadata'].get('type', 'unknown')}")
-        print(f"Name: {fragment['metadata'].get('name', 'unknown')}")
-        print("First 200 chars:")
-        print(fragment['text'][:200] + "..." if len(fragment['text']) > 200 else fragment['text'])
+    for query in test_queries:
+        result = selector.is_conversation_meta_query(query)
+        print(f"Query: '{query}' -> {'CONVERSATION' if result else 'CODE'}")

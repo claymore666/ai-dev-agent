@@ -481,7 +481,11 @@ class ProjectManager:
         """
         try:
             conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
+            
+            # First explicitly delete tags
+            cursor.execute("DELETE FROM project_tags WHERE project_id = ?", (project_id,))
             
             # Delete the project (cascade will delete related tags and files)
             cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))

@@ -44,6 +44,7 @@ class CodeRAG:
     def __init__(
         self,
         embedding_model_name: str = "all-MiniLM-L6-v2",
+        session_manager = None,
         llm_model_name: str = "ollama-codellama",
         max_input_size: int = 4096,
         num_output: int = 1024,
@@ -63,6 +64,7 @@ class CodeRAG:
         """
         self.embedding_model_name = embedding_model_name
         self.llm_model_name = llm_model_name
+        self.session_manager = session_manager
         
         # Load embedding model
         print(f"Loading embedding model: {embedding_model_name}")
@@ -224,7 +226,8 @@ class CodeRAG:
             query=query,
             project_id=project_id,
             max_contexts=top_k,
-            context_strategy=context_strategy
+            context_strategy=context_strategy,
+            session_manager=self.session_manager
         )
     
     def generate_with_context(

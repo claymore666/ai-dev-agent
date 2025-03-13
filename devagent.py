@@ -336,7 +336,8 @@ class DevAgentCLI:
         if self.code_rag is None:
             try:
                 logger.info(f"Initializing CodeRAG with model: {model_name}")
-                self.code_rag = CodeRAG(llm_model_name=model_name)
+                # Pass session manager to CodeRAG
+                self.code_rag = CodeRAG(llm_model_name=model_name, session_manager=self.session_manager)
                 logger.info("CodeRAG initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize CodeRAG: {e}")
