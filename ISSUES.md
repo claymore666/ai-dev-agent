@@ -1,13 +1,15 @@
 # Issue: Session Management and History Awareness Bugs in Context-Extended AI Software Development Agent
 
 ## Problem Description
-Multiple issues have been identified with the session management and history awareness functionality:
+Multiple issues have been identified with the session management and history awareness functionality, as well as project deletion:
 
 1. The AI Development Agent fails to correctly utilize session history when asked to summarize a conversation. Instead of referencing the actual interaction history, it retrieves and presents unrelated content from the vector database.
 
 2. The `generate` command does not verify or automatically create a session when executed, leading to a disjoint user experience.
 
 3. Commands executed before session creation appear in the session history after a session is created, causing confusion and duplicate entries.
+
+4. Project deletion fails to properly clean up associated tags, leading to unique constraint violations when trying to recreate projects with the same name and tags.
 
 ## Reproduction Steps
 
@@ -83,6 +85,27 @@ Multiple issues have been identified with the session management and history awa
 
 5. Note that the command from step 2 appears in history, despite being executed before the session was created.
 
+### Issue 4: Project Deletion Tag Cleanup
+1. Create a project with tags:
+   ```bash
+   devagent project create "test-conversation-summary" --tags test
+   ```
+
+2. Delete the project:
+   ```bash
+   devagent project delete test-conversation-summary
+   ```
+
+3. Try to recreate the same project with the same tags:
+   ```bash
+   devagent project create "test-conversation-summary" --tags test
+   ```
+
+4. The operation fails with a unique constraint error:
+   ```
+   Error: UNIQUE constraint failed: project_tags.project_id, project_tags.tag
+   ```
+
 ## Expected Behavior
 
 ### Issue 1: Session History Awareness
@@ -101,6 +124,11 @@ The agent should:
 - Session history should only include commands that were executed after session creation
 - Commands executed before the session was created should not appear in the history
 
+### Issue 4: Project Deletion Tag Cleanup
+- Project deletion should properly clean up all associated data, including tags
+- After deleting a project, it should be possible to create a new project with the same name and tags
+- No unique constraint violations should occur during project recreation
+
 ## Actual Behavior
 
 ### Issue 1: Session History Awareness
@@ -117,6 +145,9 @@ The `generate` command executes without checking for an active session or offeri
 
 ### Issue 3: Pre-Session Commands in History
 Commands executed before session creation appear in the session history after a session is created, causing duplicate entries and incorrect context tracking.
+
+### Issue 4: Project Deletion Tag Cleanup
+When deleting a project, the system fails to properly clean up the project's tags in the database, leading to unique constraint violations when trying to recreate a project with the same name and tags. The error occurs because the database still has the project-tag association records even after the project is supposedly deleted.
 
 ## Technical Analysis
 
@@ -224,6 +255,7 @@ The fixes should integrate with these existing components while:
 1. Improving the handling of conversation-related queries
 2. Enhancing the integration between command execution and session management
 3. Ensuring proper isolation of session history to commands executed during the session lifetime
+4. Fixing the project deletion mechanism to properly clean up related database records
 
 ## User Experience Improvement
 These fixes will significantly improve the user experience by:
@@ -232,3 +264,4 @@ These fixes will significantly improve the user experience by:
 3. Providing clearer guidance on session usage
 4. Eliminating confusion from history containing pre-session commands
 5. Creating a more cohesive workflow between projects and sessions
+6. Allowing seamless project deletion and recreation without database errors

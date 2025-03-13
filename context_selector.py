@@ -370,7 +370,318 @@ class ContextSelector:
         logger.info(f"Using {len(results[:max_contexts])} conversation context items for query")
         return results[:max_contexts]
     
-    # [Rest of the methods in the class remain the same]
+    def _semantic_context(
+        self,
+        query: str,
+        project_id: str,
+        max_contexts: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve context based on semantic similarity.
+        
+        Args:
+            query: The query to retrieve context for
+            project_id: The project ID to filter by
+            max_contexts: Maximum number of context fragments to return
+            
+        Returns:
+            List of context fragments based on semantic similarity
+        """
+        # Use the RAG system's retrieve_relevant_code method
+        results = self.rag.retrieve_relevant_code(
+            query=query,
+            project_id=project_id,
+            top_k=max_contexts
+        )
+        
+        logger.info(f"Using semantic context strategy for query with {len(results)} results")
+        return results
+    
+    def _structural_context(
+        self,
+        query: str,
+        project_id: str,
+        max_contexts: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve context based on code structure relationships.
+        
+        Args:
+            query: The query to retrieve context for
+            project_id: The project ID to filter by
+            max_contexts: Maximum number of context fragments to return
+            
+        Returns:
+            List of context fragments based on structural relationships
+        """
+        # Extract code structures from the query
+        structures = self._extract_code_structures(query)
+        
+        # Get baseline semantic results
+        semantic_results = self._semantic_context(query, project_id, max_contexts * 2)
+        
+        # If no structures found, return semantic results
+        if not structures['classes'] and not structures['functions'] and not structures['variables']:
+            logger.info("No specific structures found in query, using semantic results")
+            return semantic_results[:max_contexts]
+        
+        # Calculate structural weight for each result based on shared structures
+        weighted_results = []
+        for result in semantic_results:
+            score = result.get('score', 0.5)
+            
+            # Extract structures from the result text
+            try:
+                result_structures = self._extract_code_structures(result['text'])
+                
+                # Calculate structure overlap
+                class_overlap = len(set(structures['classes']).intersection(result_structures['classes']))
+                function_overlap = len(set(structures['functions']).intersection(result_structures['functions']))
+                variable_overlap = len(set(structures['variables']).intersection(result_structures['variables']))
+                
+                # Apply structural boost
+                structure_boost = class_overlap * 0.2 + function_overlap * 0.15 + variable_overlap * 0.05
+                adjusted_score = score * (1 + structure_boost)
+                
+                # Update the score
+                result['score'] = min(1.0, adjusted_score)  # Cap at 1.0
+                
+                weighted_results.append(result)
+            except Exception as e:
+                logger.warning(f"Error analyzing structures in result: {e}")
+                weighted_results.append(result)
+        
+        # Sort by adjusted score and limit to max_contexts
+        weighted_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        
+        logger.info(f"Using structural context strategy with {len(weighted_results[:max_contexts])} results")
+        return weighted_results[:max_contexts]
+    
+    def _dependency_context(
+        self,
+        query: str,
+        project_id: str,
+        max_contexts: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve context based on code dependencies.
+        
+        Args:
+            query: The query to retrieve context for
+            project_id: The project ID to filter by
+            max_contexts: Maximum number of context fragments to return
+            
+        Returns:
+            List of context fragments based on dependency relationships
+        """
+        # Get baseline structural results
+        structural_results = self._structural_context(query, project_id, max_contexts)
+        
+        # Extract imports and dependencies from the query
+        imports = self._extract_imports(query)
+        
+        # If no imports found, return structural results
+        if not imports:
+            logger.info("No specific imports found in query, using structural results")
+            return structural_results
+        
+        # Get additional context for dependencies (import statements, etc.)
+        dependency_query = " ".join(imports)
+        
+        # Only fetch dependency context if we have a meaningful query
+        dependency_results = []
+        if dependency_query:
+            try:
+                dependency_results = self.rag.retrieve_relevant_code(
+                    query=dependency_query,
+                    project_id=project_id,
+                    top_k=max_contexts // 2
+                )
+            except Exception as e:
+                logger.warning(f"Error fetching dependency context: {e}")
+        
+        # Combine results, prioritizing structural results
+        combined_results = []
+        
+        # Add structural results
+        for result in structural_results[:max_contexts - len(dependency_results)]:
+            combined_results.append(result)
+        
+        # Add dependency results not already in the list
+        existing_ids = {r.get('id', i) for i, r in enumerate(combined_results)}
+        for result in dependency_results:
+            result_id = result.get('id', None)
+            if result_id not in existing_ids:
+                combined_results.append(result)
+                if len(combined_results) >= max_contexts:
+                    break
+        
+        logger.info(f"Using dependency context strategy with {len(combined_results)} results")
+        return combined_results
+    
+    def _balanced_context(
+        self,
+        query: str,
+        project_id: str,
+        max_contexts: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve context using a balanced approach of semantic, structural, and dependency strategies.
+        
+        Args:
+            query: The query to retrieve context for
+            project_id: The project ID to filter by
+            max_contexts: Maximum number of context fragments to return
+            
+        Returns:
+            List of context fragments from balanced selection
+        """
+        # Allocate context slots for each strategy
+        semantic_slots = max_contexts // 3
+        structural_slots = max_contexts // 3
+        dependency_slots = max_contexts - semantic_slots - structural_slots
+        
+        # Get context from each strategy
+        semantic_results = self._semantic_context(query, project_id, semantic_slots)
+        structural_results = self._structural_context(query, project_id, structural_slots * 2)
+        dependency_results = self._dependency_context(query, project_id, dependency_slots * 2)
+        
+        # Filter structural and dependency results to avoid duplicates with semantic results
+        semantic_ids = {r.get('id', i) for i, r in enumerate(semantic_results)}
+        
+        filtered_structural = []
+        for result in structural_results:
+            result_id = result.get('id', None)
+            if result_id not in semantic_ids:
+                filtered_structural.append(result)
+                if len(filtered_structural) >= structural_slots:
+                    break
+        
+        # Combine semantic and filtered structural results
+        combined_ids = semantic_ids.union({r.get('id', i+1000) for i, r in enumerate(filtered_structural)})
+        
+        filtered_dependency = []
+        for result in dependency_results:
+            result_id = result.get('id', None)
+            if result_id not in combined_ids:
+                filtered_dependency.append(result)
+                if len(filtered_dependency) >= dependency_slots:
+                    break
+        
+        # Combine all results
+        combined_results = semantic_results + filtered_structural + filtered_dependency
+        
+        # Sort by score
+        combined_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        
+        logger.info(f"Using balanced context strategy with {len(combined_results)} results")
+        return combined_results[:max_contexts]
+    
+    def _extract_code_structures(self, text: str) -> Dict[str, List[str]]:
+        """
+        Extract code structures (classes, functions, variables) from text.
+        
+        Args:
+            text: The text to extract structures from
+            
+        Returns:
+            Dictionary with lists of classes, functions, and variables
+        """
+        structures = {
+            'classes': [],
+            'functions': [],
+            'variables': []
+        }
+        
+        # Simple regex-based extraction for basic cases
+        import re
+        
+        # Extract classes
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        class_matches = re.findall(class_pattern, text)
+        structures['classes'] = list(set(class_matches))
+        
+        # Extract functions
+        function_pattern = r'def\s+([A-Za-z_][A-Za-z0-9_]*)'
+        function_matches = re.findall(function_pattern, text)
+        structures['functions'] = list(set(function_matches))
+        
+        # Extract variables (simple cases only)
+        variable_pattern = r'([A-Za-z_][A-Za-z0-9_]*)\s*='
+        variable_matches = re.findall(variable_pattern, text)
+        
+        # Filter out common keywords
+        keywords = {'True', 'False', 'None', 'if', 'else', 'elif', 'for', 'while', 'class', 'def'}
+        variables = [v for v in variable_matches if v not in keywords]
+        structures['variables'] = list(set(variables))
+        
+        # Try to use ast for more accurate extraction if possible
+        try:
+            import ast
+            
+            tree = ast.parse(text)
+            
+            # Reset lists to use ast results instead
+            structures['classes'] = []
+            structures['functions'] = []
+            structures['variables'] = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    structures['classes'].append(node.name)
+                elif isinstance(node, ast.FunctionDef):
+                    structures['functions'].append(node.name)
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            structures['variables'].append(target.id)
+        except Exception as e:
+            logger.warning(f"Failed to parse code: {e}")
+            # Fall back to regex results
+        
+        return structures
+    
+    def _extract_imports(self, text: str) -> List[str]:
+        """
+        Extract import statements and module names from text.
+        
+        Args:
+            text: The text to extract imports from
+            
+        Returns:
+            List of import statements and module names
+        """
+        imports = []
+        
+        # Simple regex-based extraction
+        import re
+        
+        # Extract import statements
+        import_pattern = r'(?:from|import)\s+([A-Za-z0-9_.]+)'
+        import_matches = re.findall(import_pattern, text)
+        imports = list(set(import_matches))
+        
+        # Try to use ast for more accurate extraction if possible
+        try:
+            import ast
+            
+            tree = ast.parse(text)
+            
+            # Reset list to use ast results instead
+            imports = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for name in node.names:
+                        imports.append(name.name)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        imports.append(node.module)
+        except Exception as e:
+            logger.warning(f"Failed to parse code for imports: {e}")
+            # Fall back to regex results
+        
+        return imports
     
     def analyze_query_complexity(self, query: str) -> Dict[str, Any]:
         """
@@ -382,8 +693,6 @@ class ContextSelector:
         Returns:
             Dictionary with analysis results
         """
-        # Check if this is a conversation meta-query first (moved to select_context for efficiency)
-        
         # Extract code structures
         structures = self._extract_code_structures(query)
         
@@ -412,6 +721,7 @@ class ContextSelector:
             "structures": structures,
             "optimal_strategy": optimal_strategy
         }
+
 
 # Add these lines at the end of the file for testing
 if __name__ == "__main__":
