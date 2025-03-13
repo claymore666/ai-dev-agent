@@ -1,6 +1,60 @@
 # Changelog
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
+
+## [0.2.4] - 2025-03-13
+
+### Added
+- SQLite-based storage for projects and sessions
+  - Complete database schema with proper relationships
+  - Efficient storage and retrieval of project data
+  - Persistent tracking of active sessions
+  - Automatic migration of YAML-based projects
+- Enhanced query capabilities for projects and sessions
+  - Search by tags, content, and creation dates
+  - Filter and sort projects by various criteria
+  - Improved performance for listing and searching
+- Transaction support for improved data integrity
+- Improved relational structure between projects, sessions, files
+
+### Changed
+- Migrated project storage from YAML to SQLite
+- Refactored session storage to use SQLite exclusively
+- Enhanced project and session commands to leverage SQLite capabilities
+- Improved error handling and logging for data operations
+- Updated CLI to support the new storage system
+
+### Fixed
+- Session persistence issues across command invocations
+- Project data integrity during concurrent access
+- Reliability of file tracking within projects
+
+## [0.2.3] - 2025-03-13
+
+### Added
+- Session Management System with persistent development sessions
+  - Create, load, close, reset, export, and import sessions
+  - Track session state and history across interactions
+  - Store context information in session
+  - Associate sessions with projects
+  - Record command history automatically
+  - Session metadata with timing and activity tracking
+- Extended CLI with session management commands
+- Project and session integration for seamless workflow
+- Command history tracking and browsing
+- Session context values to maintain state
+- Historical record of generated code and search results
+
+### Changed
+- Enhanced command handling to track session activity
+- Improved project interactions to leverage session context
+- Updated code generation to store results in session context
+- Unified CLI interface for session management
+
+### Fixed
+- Better handling of session state across multiple commands
+- Improved error handling with session context
+
 ## [0.2.2] - 2025-03-13
 
 ### Added

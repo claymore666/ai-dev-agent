@@ -1,47 +1,52 @@
-# Release Notes: v0.2.1 - CLI & Project Management
+# Release Notes: v0.2.4 - SQLite Database Integration
 
 ## Overview
 
-Version 0.2.1 enhances the Context-Extended AI Software Development Agent with a unified command-line interface and a comprehensive project management system. These additions mark the first milestone of Phase 3, focusing on usability and structured project organization. The new features maintain compatibility with the vector database and RAG capabilities from v0.2.0.
+Version 0.2.4 of the Context-Extended AI Software Development Agent enhances data persistence and integrity by migrating both project and session storage to SQLite. This significant architectural improvement provides a robust foundation for maintaining complex relationships between projects, sessions, and code fragments, while ensuring data integrity and improving query performance.
 
 ## Key Features
 
-### Unified Command Line Interface
-- A comprehensive CLI tool (`devagent.py`) for all agent operations
-- Consistent command structure with extensive help documentation
-- Status monitoring for all system components
-- Unified access to code search, generation, and project management
-- Flexible output options for both interactive and script-based usage
+### SQLite-Based Project Storage
+- Complete relational database schema for projects, tags, and files
+- Automatic migration from YAML files to SQLite with backup preservation
+- Enhanced search and filtering capabilities for projects
+- Improved metadata storage and retrieval
+- Transaction support for better data integrity
 
-### Project Configuration System
-- Persistent YAML-based project storage
-- Complete metadata tracking for projects and files
-- Support for tagging, descriptions, and other organization metadata
-- File tracking within project contexts
-- Code generation history recording
-- JSON export/import for project configurations
+### Enhanced Session Management
+- Persistent tracking of active sessions across command invocations
+- Efficient history tracking for commands and their results
+- Better relationship modeling between sessions and projects
+- More robust error handling and data validation
+- Improved context persistence between operations
 
 ### Integration Improvements
-- Seamless interaction between projects and the vector database
-- Automatic updating of project metadata during code operations
-- Improved error handling and user feedback
-- Better validation of inputs and operations
+- Consistent storage architecture for all persistent data
+- Seamless connection between project and session data
+- More efficient queries for related data
+- Better support for concurrent operations
+- Improved performance for large datasets
 
 ## Detailed Changes
 
-### New Scripts & Components
-- `devagent.py`: Main CLI tool for all operations
-- `project_manager.py`: Core component for project management
-- `install_cli.sh`: Installation script for the CLI tool
-- `test_project_config.sh`: Test script for project management features
-- `CLI_README.md`: Comprehensive documentation for CLI usage
+### Database Schema
+- **Projects Table**: Core project information
+- **Project Tags Table**: Many-to-many relationship for project tags
+- **Project Files Table**: Files associated with projects
+- **Sessions Table**: Session metadata and content
+- **Active Session Table**: Tracks which session is currently active
 
-### Enhanced Workflows
-- Create and manage projects with persistent metadata
-- Track files associated with projects
-- Add code to both project tracking and vector database in one step
-- Generate code with awareness of project context
-- Export and import project configurations for backup or sharing
+### Enhanced Operations
+- **Project Management**: Create, update, search, and delete projects with proper relational integrity
+- **File Tracking**: Add and manage files within projects with metadata
+- **Session Persistence**: Maintain active sessions across multiple command invocations
+- **Command History**: Track and query command history within sessions
+- **Context Values**: Store and retrieve context information persistently
+
+### Migration Path
+- Automatic migration of existing YAML-based projects to SQLite
+- Preservation of original YAML files as backups
+- Seamless transition for existing projects and workflows
 
 ## Installation & Upgrade
 
@@ -49,45 +54,43 @@ Current users can upgrade with:
 
 ```bash
 git pull
-chmod +x install_cli.sh
-./install_cli.sh
+chmod +x project_manager.py session_manager.py
 ```
 
-The CLI tool can be tested with:
-
-```bash
-./test_project_config.sh
-```
+The SQLite database will be automatically created at `~/.devagent/devagent.db` and existing projects will be migrated.
 
 ## Example Usage
 
 ```bash
-# Create a new project
-devagent project create "Data API" --tags python api web
+# Project commands remain the same
+devagent project create "API Project" --tags api python
 
-# Add existing code to the project
-devagent add api.py --project-id data-api
+# Create a session for a project
+devagent session create "Development" --project-id api-project
 
-# Generate new code with context awareness
-devagent generate "Create a rate limiting middleware" --project-id data-api --output rate_limiter.py
+# Command history is now tracked automatically
+devagent search "authentication"
+devagent generate "Create a JWT authentication function" --output auth.py
 
-# List all projects
-devagent project list
+# View session history
+devagent session history
 
-# Export a project configuration
-devagent project export data-api --output data-api-config.json
+# Close and later resume the session
+devagent session close
+devagent session load <session-id>
 ```
 
 ## What's Next
 
-Upcoming development will focus on:
-- Enhanced context selection for more relevant code retrieval
-- Session management for persistent development sessions
-- Code quality metrics and automated testing integration
-- Iterative refinement of generated code
+Future development will focus on:
+- Code quality assessment and metrics
+- Automated testing integration
+- Performance optimization for large projects
+- Enhanced user experience for common workflows
 
 ## Notes
 
-- All existing functionality from v0.2.0 remains fully compatible
-- Projects are stored in `~/.devagent/projects.yaml` by default
-- For complete documentation, see the updated README.md and CLI_README.md
+- The SQLite database is located at `~/.devagent/devagent.db`
+- A backup of your original projects.yaml is preserved as `~/.devagent/projects.yaml.bak`
+- This release completes Phase 3's data persistence components
+- For complete documentation, see the updated README.md

@@ -4,16 +4,17 @@ Project Manager for AI Development Agent
 
 This module provides functionality for managing projects, including
 creating, updating, listing, and retrieving project configurations.
-Projects are stored in a YAML file and can be accessed via their ID.
+Projects are stored in a SQLite database for persistence and efficiency.
 """
 
 import os
 import sys
 import yaml
 import json
-import uuid
+import sqlite3
 import logging
-from datetime import datetime
+import datetime
+import uuid
 from typing import Dict, List, Any, Optional, Union
 
 # Configure logging
@@ -25,68 +26,190 @@ logger = logging.getLogger("project_manager")
 
 # Default paths
 DEFAULT_CONFIG_DIR = os.path.expanduser("~/.devagent")
-DEFAULT_PROJECTS_FILE = os.path.join(DEFAULT_CONFIG_DIR, "projects.yaml")
+DEFAULT_DB_PATH = os.path.join(DEFAULT_CONFIG_DIR, "devagent.db")
+
+def init_project_db(db_path: str) -> None:
+    """Initialize the project database."""
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Create the projects table if it doesn't exist
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        metadata TEXT
+    )
+    ''')
+    
+    # Create the project_tags table if it doesn't exist
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS project_tags (
+        project_id TEXT,
+        tag TEXT,
+        PRIMARY KEY (project_id, tag),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )
+    ''')
+    
+    # Create the project_files table if it doesn't exist
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS project_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        path TEXT,
+        type TEXT,
+        description TEXT,
+        added_at TEXT,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    
+    logger.debug(f"Initialized project database: {db_path}")
 
 class ProjectManager:
     """Manager for AI Development Agent projects."""
     
-    def __init__(self, projects_file: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None):
         """
         Initialize the project manager.
         
         Args:
-            projects_file: Path to the projects file. If None, uses the default.
+            db_path: Path to the database file. If None, uses the default.
         """
-        self.projects_file = projects_file or DEFAULT_PROJECTS_FILE
-        self.ensure_config_dir()
-        self.projects = self.load_projects()
+        self.db_path = db_path or DEFAULT_DB_PATH
+        
+        # Ensure database exists and has the correct schema
+        self._ensure_db_exists()
+        
+        # Load projects from YAML file for migration if needed
+        self._migrate_from_yaml_if_needed()
     
-    def ensure_config_dir(self) -> None:
-        """Ensure the configuration directory exists."""
-        config_dir = os.path.dirname(self.projects_file)
-        if not os.path.exists(config_dir):
-            try:
-                os.makedirs(config_dir)
-                logger.info(f"Created configuration directory: {config_dir}")
-            except OSError as e:
-                logger.error(f"Failed to create configuration directory: {e}")
-                raise
+    def _ensure_db_exists(self) -> None:
+        """Ensure the database exists and has the correct schema."""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        init_project_db(self.db_path)
     
-    def load_projects(self) -> Dict[str, Dict[str, Any]]:
+    def _migrate_from_yaml_if_needed(self) -> None:
+        """Migrate projects from YAML file if it exists and database is empty."""
+        yaml_path = os.path.join(DEFAULT_CONFIG_DIR, "projects.yaml")
+        
+        if not os.path.exists(yaml_path):
+            return
+        
+        # Check if database is empty
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        count = cursor.fetchone()[0]
+        conn.close()
+        
+        if count > 0:
+            # Database already has projects, no need to migrate
+            return
+        
+        # Load projects from YAML
+        try:
+            with open(yaml_path, 'r') as f:
+                projects = yaml.safe_load(f) or {}
+            
+            # Migrate each project to the database
+            for project_id, project_data in projects.items():
+                self.create_project(
+                    name=project_data.get('name', ''),
+                    description=project_data.get('description', ''),
+                    tags=project_data.get('tags', []),
+                    project_id=project_id,
+                    created_at=project_data.get('created_at'),
+                    metadata=project_data.get('metadata', {})
+                )
+                
+                # Migrate project files
+                for file_data in project_data.get('files', []):
+                    self.add_file_to_project(
+                        project_id=project_id,
+                        file_path=file_data.get('path', ''),
+                        file_type=file_data.get('type', ''),
+                        description=file_data.get('description', '')
+                    )
+            
+            logger.info(f"Migrated {len(projects)} projects from YAML to SQLite")
+            
+            # Rename the original YAML file as a backup
+            backup_path = f"{yaml_path}.bak"
+            os.rename(yaml_path, backup_path)
+            logger.info(f"Renamed original YAML file to {backup_path}")
+        except Exception as e:
+            logger.error(f"Error migrating projects from YAML: {e}")
+    
+    def list_projects(self) -> List[Dict[str, Any]]:
         """
-        Load projects from the projects file.
+        List all projects.
         
         Returns:
-            Dictionary of projects indexed by their ID.
+            List of project dictionaries.
         """
-        if not os.path.exists(self.projects_file):
-            logger.info(f"Projects file not found: {self.projects_file}. Creating new file.")
-            return {}
-        
         try:
-            with open(self.projects_file, 'r') as f:
-                projects = yaml.safe_load(f) or {}
-            logger.info(f"Loaded {len(projects)} projects from {self.projects_file}")
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row  # This enables accessing columns by name
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            SELECT id, name, description, created_at, updated_at, metadata
+            FROM projects
+            ORDER BY updated_at DESC
+            ''')
+            
+            projects = []
+            for row in cursor.fetchall():
+                project = dict(row)
+                
+                # Load metadata from JSON
+                if project['metadata']:
+                    project['metadata'] = json.loads(project['metadata'])
+                else:
+                    project['metadata'] = {}
+                
+                # Get tags for this project
+                cursor.execute('''
+                SELECT tag FROM project_tags WHERE project_id = ?
+                ''', (project['id'],))
+                
+                tags = [tag[0] for tag in cursor.fetchall()]
+                project['tags'] = tags
+                
+                # Get files for this project
+                cursor.execute('''
+                SELECT path, type, description, added_at
+                FROM project_files
+                WHERE project_id = ?
+                ''', (project['id'],))
+                
+                files = []
+                for file_row in cursor.fetchall():
+                    files.append({
+                        'path': file_row[0],
+                        'type': file_row[1],
+                        'description': file_row[2],
+                        'added_at': file_row[3]
+                    })
+                
+                project['files'] = files
+                projects.append(project)
+            
+            conn.close()
             return projects
         except Exception as e:
-            logger.error(f"Failed to load projects: {e}")
-            return {}
-    
-    def save_projects(self) -> bool:
-        """
-        Save projects to the projects file.
-        
-        Returns:
-            True if successful, False otherwise.
-        """
-        try:
-            with open(self.projects_file, 'w') as f:
-                yaml.dump(self.projects, f, default_flow_style=False)
-            logger.info(f"Saved {len(self.projects)} projects to {self.projects_file}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save projects: {e}")
-            return False
+            logger.error(f"Error listing projects: {e}")
+            return []
     
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -98,39 +221,71 @@ class ProjectManager:
         Returns:
             Project dictionary or None if not found.
         """
-        project = self.projects.get(project_id)
-        if project:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            SELECT id, name, description, created_at, updated_at, metadata
+            FROM projects
+            WHERE id = ?
+            ''', (project_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return None
+            
+            project = dict(row)
+            
+            # Load metadata from JSON
+            if project['metadata']:
+                project['metadata'] = json.loads(project['metadata'])
+            else:
+                project['metadata'] = {}
+            
+            # Get tags for this project
+            cursor.execute('''
+            SELECT tag FROM project_tags WHERE project_id = ?
+            ''', (project_id,))
+            
+            tags = [tag[0] for tag in cursor.fetchall()]
+            project['tags'] = tags
+            
+            # Get files for this project
+            cursor.execute('''
+            SELECT path, type, description, added_at
+            FROM project_files
+            WHERE project_id = ?
+            ''', (project_id,))
+            
+            files = []
+            for file_row in cursor.fetchall():
+                files.append({
+                    'path': file_row[0],
+                    'type': file_row[1],
+                    'description': file_row[2],
+                    'added_at': file_row[3]
+                })
+            
+            project['files'] = files
+            
+            conn.close()
             logger.debug(f"Retrieved project: {project_id}")
-        else:
-            logger.debug(f"Project not found: {project_id}")
-        return project
-    
-    def list_projects(self) -> List[Dict[str, Any]]:
-        """
-        List all projects.
-        
-        Returns:
-            List of project dictionaries.
-        """
-        projects_list = []
-        for project_id, project in self.projects.items():
-            # Create a copy of the project with ID included
-            project_with_id = project.copy()
-            project_with_id['id'] = project_id
-            projects_list.append(project_with_id)
-        
-        # Sort by creation date, newest first
-        projects_list.sort(key=lambda p: p.get('created_at', ''), reverse=True)
-        
-        logger.info(f"Listed {len(projects_list)} projects")
-        return projects_list
+            return project
+        except Exception as e:
+            logger.error(f"Error getting project {project_id}: {e}")
+            return None
     
     def create_project(
         self, 
         name: str, 
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        created_at: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Create a new project.
@@ -140,6 +295,8 @@ class ProjectManager:
             description: Optional description of the project.
             tags: Optional list of tags for the project.
             project_id: Optional project ID. If None, generates an ID based on the name.
+            created_at: Optional creation timestamp. If None, uses current time.
+            metadata: Optional additional metadata for the project.
             
         Returns:
             The created project dictionary.
@@ -149,34 +306,68 @@ class ProjectManager:
             project_id = name.lower().replace(" ", "-")
             
             # Add random suffix to ensure uniqueness if the ID already exists
-            if project_id in self.projects:
+            if self.get_project(project_id) is not None:
                 random_suffix = uuid.uuid4().hex[:6]
                 project_id = f"{project_id}-{random_suffix}"
         
-        # Create project
-        project = {
-            'name': name,
-            'description': description or "",
-            'tags': tags or [],
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat(),
-            'files': [],  # List of files associated with the project
-            'metadata': {},  # Additional metadata
-        }
+        # Use current time if created_at is not provided
+        if created_at is None:
+            created_at = datetime.datetime.now().isoformat()
         
-        # Add to projects dictionary
-        self.projects[project_id] = project
+        # Use current time for updated_at
+        updated_at = datetime.datetime.now().isoformat()
         
-        # Save projects
-        if self.save_projects():
+        # Initialize metadata
+        if metadata is None:
+            metadata = {}
+        
+        # Initialize tags
+        if tags is None:
+            tags = []
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Insert project into database
+            cursor.execute('''
+            INSERT INTO projects (id, name, description, created_at, updated_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                project_id,
+                name,
+                description or "",
+                created_at,
+                updated_at,
+                json.dumps(metadata)
+            ))
+            
+            # Insert tags
+            for tag in tags:
+                cursor.execute('''
+                INSERT INTO project_tags (project_id, tag)
+                VALUES (?, ?)
+                ''', (project_id, tag))
+            
+            conn.commit()
+            conn.close()
+            
             logger.info(f"Created project: {project_id}")
-        else:
-            logger.error(f"Project created but not saved: {project_id}")
-        
-        # Return project with ID
-        project_with_id = project.copy()
-        project_with_id['id'] = project_id
-        return project_with_id
+            
+            # Return project with ID
+            return {
+                'id': project_id,
+                'name': name,
+                'description': description or "",
+                'tags': tags,
+                'created_at': created_at,
+                'updated_at': updated_at,
+                'files': [],
+                'metadata': metadata
+            }
+        except Exception as e:
+            logger.error(f"Error creating project: {e}")
+            raise
     
     def update_project(
         self,
@@ -199,39 +390,84 @@ class ProjectManager:
         Returns:
             The updated project dictionary or None if the project was not found.
         """
+        # Get current project data
         project = self.get_project(project_id)
         if not project:
             logger.error(f"Project not found for update: {project_id}")
             return None
         
-        # Update fields
-        if name is not None:
-            project['name'] = name
-        
-        if description is not None:
-            project['description'] = description
-        
-        if tags is not None:
-            project['tags'] = tags
-        
-        if metadata is not None:
-            if 'metadata' not in project:
-                project['metadata'] = {}
-            project['metadata'].update(metadata)
-        
         # Update timestamp
-        project['updated_at'] = datetime.now().isoformat()
+        updated_at = datetime.datetime.now().isoformat()
         
-        # Save projects
-        if self.save_projects():
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Build the update query dynamically based on which fields are provided
+            update_fields = []
+            update_values = []
+            
+            if name is not None:
+                update_fields.append("name = ?")
+                update_values.append(name)
+            
+            if description is not None:
+                update_fields.append("description = ?")
+                update_values.append(description)
+            
+            # Always update the updated_at timestamp
+            update_fields.append("updated_at = ?")
+            update_values.append(updated_at)
+            
+            # Update metadata if provided
+            if metadata is not None:
+                # Merge with existing metadata
+                new_metadata = {**project.get('metadata', {}), **metadata}
+                update_fields.append("metadata = ?")
+                update_values.append(json.dumps(new_metadata))
+            else:
+                new_metadata = project.get('metadata', {})
+            
+            # Update the project record
+            if update_fields:
+                query = f"UPDATE projects SET {', '.join(update_fields)} WHERE id = ?"
+                update_values.append(project_id)
+                cursor.execute(query, update_values)
+            
+            # Update tags if provided
+            if tags is not None:
+                # Delete existing tags
+                cursor.execute("DELETE FROM project_tags WHERE project_id = ?", (project_id,))
+                
+                # Insert new tags
+                for tag in tags:
+                    cursor.execute('''
+                    INSERT INTO project_tags (project_id, tag)
+                    VALUES (?, ?)
+                    ''', (project_id, tag))
+                
+                # Update tags in the project dictionary
+                project['tags'] = tags
+            
+            conn.commit()
+            conn.close()
+            
             logger.info(f"Updated project: {project_id}")
-        else:
-            logger.error(f"Project updated but not saved: {project_id}")
-        
-        # Return project with ID
-        project_with_id = project.copy()
-        project_with_id['id'] = project_id
-        return project_with_id
+            
+            # Update the project dictionary with the new values
+            if name is not None:
+                project['name'] = name
+            
+            if description is not None:
+                project['description'] = description
+            
+            project['updated_at'] = updated_at
+            project['metadata'] = new_metadata
+            
+            return project
+        except Exception as e:
+            logger.error(f"Error updating project: {e}")
+            return None
     
     def delete_project(self, project_id: str) -> bool:
         """
@@ -243,19 +479,27 @@ class ProjectManager:
         Returns:
             True if the project was deleted, False otherwise.
         """
-        if project_id not in self.projects:
-            logger.error(f"Project not found for deletion: {project_id}")
-            return False
-        
-        # Remove project
-        del self.projects[project_id]
-        
-        # Save projects
-        if self.save_projects():
-            logger.info(f"Deleted project: {project_id}")
-            return True
-        else:
-            logger.error(f"Project deletion not saved: {project_id}")
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Delete the project (cascade will delete related tags and files)
+            cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            
+            # Check if any rows were affected
+            rows_affected = cursor.rowcount
+            
+            conn.commit()
+            conn.close()
+            
+            if rows_affected > 0:
+                logger.info(f"Deleted project: {project_id}")
+                return True
+            else:
+                logger.error(f"Project not found for deletion: {project_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting project: {e}")
             return False
     
     def add_file_to_project(
@@ -277,35 +521,41 @@ class ProjectManager:
         Returns:
             True if the file was added, False otherwise.
         """
-        project = self.get_project(project_id)
-        if not project:
+        # Check if project exists
+        if not self.get_project(project_id):
             logger.error(f"Project not found for adding file: {project_id}")
             return False
         
-        # Ensure files list exists
-        if 'files' not in project:
-            project['files'] = []
-        
-        # Create file entry
-        file_entry = {
-            'path': file_path,
-            'type': file_type or self._guess_file_type(file_path),
-            'description': description or "",
-            'added_at': datetime.now().isoformat(),
-        }
-        
-        # Add file to project
-        project['files'].append(file_entry)
-        
-        # Update timestamp
-        project['updated_at'] = datetime.now().isoformat()
-        
-        # Save projects
-        if self.save_projects():
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Insert file
+            cursor.execute('''
+            INSERT INTO project_files (project_id, path, type, description, added_at)
+            VALUES (?, ?, ?, ?, ?)
+            ''', (
+                project_id,
+                file_path,
+                file_type or self._guess_file_type(file_path),
+                description or "",
+                datetime.datetime.now().isoformat()
+            ))
+            
+            # Update project updated_at timestamp
+            cursor.execute('''
+            UPDATE projects
+            SET updated_at = ?
+            WHERE id = ?
+            ''', (datetime.datetime.now().isoformat(), project_id))
+            
+            conn.commit()
+            conn.close()
+            
             logger.info(f"Added file to project: {file_path} -> {project_id}")
             return True
-        else:
-            logger.error(f"File addition not saved: {file_path} -> {project_id}")
+        except Exception as e:
+            logger.error(f"Error adding file to project: {e}")
             return False
     
     def _guess_file_type(self, file_path: str) -> str:
@@ -358,6 +608,7 @@ class ProjectManager:
         Returns:
             Path to the exported file or None if the export failed.
         """
+        # Get the project
         project = self.get_project(project_id)
         if not project:
             logger.error(f"Project not found for export: {project_id}")
@@ -367,13 +618,10 @@ class ProjectManager:
         if output_file is None:
             output_file = f"{project_id}.json"
         
-        # Create a copy with ID included
-        project_with_id = project.copy()
-        project_with_id['id'] = project_id
-        
         try:
             with open(output_file, 'w') as f:
-                json.dump(project_with_id, f, indent=2)
+                json.dump(project, f, indent=2)
+            
             logger.info(f"Exported project to: {output_file}")
             return output_file
         except Exception as e:
@@ -400,47 +648,62 @@ class ProjectManager:
                 logger.error("Project file does not contain an ID")
                 return None
             
-            project_id = project_data.pop('id')  # Remove ID from data
+            project_id = project_data['id']
             
             # Check if project already exists
-            if project_id in self.projects and not override_existing:
+            existing_project = self.get_project(project_id)
+            if existing_project and not override_existing:
                 logger.error(f"Project already exists: {project_id}")
                 return None
             
-            # Add project
-            self.projects[project_id] = project_data
+            # Extract project attributes
+            name = project_data.get('name', '')
+            description = project_data.get('description', '')
+            tags = project_data.get('tags', [])
+            metadata = project_data.get('metadata', {})
+            files = project_data.get('files', [])
             
-            # Save projects
-            if self.save_projects():
-                logger.info(f"Imported project: {project_id}")
+            # Create or update the project
+            if existing_project and override_existing:
+                # Update the project
+                project = self.update_project(
+                    project_id=project_id,
+                    name=name,
+                    description=description,
+                    tags=tags,
+                    metadata=metadata
+                )
+                
+                # Delete existing files
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM project_files WHERE project_id = ?", (project_id,))
+                conn.commit()
+                conn.close()
             else:
-                logger.error(f"Project imported but not saved: {project_id}")
+                # Create a new project
+                project = self.create_project(
+                    name=name,
+                    description=description,
+                    tags=tags,
+                    project_id=project_id,
+                    metadata=metadata
+                )
             
-            # Return project with ID
-            project_with_id = project_data.copy()
-            project_with_id['id'] = project_id
-            return project_with_id
+            # Add files
+            for file_data in files:
+                self.add_file_to_project(
+                    project_id=project_id,
+                    file_path=file_data.get('path', ''),
+                    file_type=file_data.get('type', ''),
+                    description=file_data.get('description', '')
+                )
             
+            logger.info(f"Imported project: {project_id}")
+            return project
         except Exception as e:
             logger.error(f"Failed to import project: {e}")
             return None
-    
-    def get_project_files(self, project_id: str) -> List[Dict[str, Any]]:
-        """
-        Get files associated with a project.
-        
-        Args:
-            project_id: ID of the project.
-            
-        Returns:
-            List of file dictionaries.
-        """
-        project = self.get_project(project_id)
-        if not project:
-            logger.error(f"Project not found for getting files: {project_id}")
-            return []
-        
-        return project.get('files', [])
     
     def search_projects(
         self,
@@ -461,46 +724,138 @@ class ProjectManager:
         Returns:
             List of matching project dictionaries.
         """
-        results = []
-        
-        for project_id, project in self.projects.items():
-            # Create a copy with ID included
-            project_with_id = project.copy()
-            project_with_id['id'] = project_id
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-            # Apply filters
+            # Build the query based on the provided criteria
+            sql_conditions = []
+            sql_params = []
+            
             if query:
-                query_lower = query.lower()
-                name = project.get('name', '').lower()
-                description = project.get('description', '').lower()
-                
-                if query_lower not in name and query_lower not in description:
-                    continue
-            
-            if tags:
-                project_tags = set(project.get('tags', []))
-                if not any(tag in project_tags for tag in tags):
-                    continue
+                sql_conditions.append("(name LIKE ? OR description LIKE ?)")
+                sql_params.extend([f"%{query}%", f"%{query}%"])
             
             if created_after:
-                created_at = project.get('created_at', '')
-                if created_at < created_after:
-                    continue
+                sql_conditions.append("created_at >= ?")
+                sql_params.append(created_after)
             
             if created_before:
-                created_at = project.get('created_at', '')
-                if created_at > created_before:
-                    continue
+                sql_conditions.append("created_at <= ?")
+                sql_params.append(created_before)
             
-            results.append(project_with_id)
+            # If we have tags, we need to use a different approach with a subquery
+            if tags:
+                tag_placeholders = ", ".join(["?"] * len(tags))
+                tag_condition = f'''
+                id IN (
+                    SELECT project_id
+                    FROM project_tags
+                    WHERE tag IN ({tag_placeholders})
+                    GROUP BY project_id
+                )
+                '''
+                sql_conditions.append(tag_condition)
+                sql_params.extend(tags)
+            
+            # Build the final query
+            sql_query = '''
+            SELECT id, name, description, created_at, updated_at, metadata
+            FROM projects
+            '''
+            
+            if sql_conditions:
+                sql_query += f" WHERE {' AND '.join(sql_conditions)}"
+            
+            sql_query += " ORDER BY updated_at DESC"
+            
+            cursor.execute(sql_query, sql_params)
+            
+            # Process the results
+            projects = []
+            for row in cursor.fetchall():
+                project = dict(row)
+                
+                # Load metadata from JSON
+                if project['metadata']:
+                    project['metadata'] = json.loads(project['metadata'])
+                else:
+                    project['metadata'] = {}
+                
+                # Get tags for this project
+                cursor.execute('''
+                SELECT tag FROM project_tags WHERE project_id = ?
+                ''', (project['id'],))
+                
+                project_tags = [tag[0] for tag in cursor.fetchall()]
+                project['tags'] = project_tags
+                
+                # Get files for this project
+                cursor.execute('''
+                SELECT path, type, description, added_at
+                FROM project_files
+                WHERE project_id = ?
+                ''', (project['id'],))
+                
+                files = []
+                for file_row in cursor.fetchall():
+                    files.append({
+                        'path': file_row[0],
+                        'type': file_row[1],
+                        'description': file_row[2],
+                        'added_at': file_row[3]
+                    })
+                
+                project['files'] = files
+                projects.append(project)
+            
+            conn.close()
+            
+            logger.info(f"Search found {len(projects)} projects")
+            return projects
+        except Exception as e:
+            logger.error(f"Error searching projects: {e}")
+            return []
+    
+    def get_project_files(self, project_id: str) -> List[Dict[str, Any]]:
+        """
+        Get files associated with a project.
         
-        # Sort by creation date, newest first
-        results.sort(key=lambda p: p.get('created_at', ''), reverse=True)
-        
-        logger.info(f"Search found {len(results)} projects")
-        return results
+        Args:
+            project_id: ID of the project.
+            
+        Returns:
+            List of file dictionaries.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            SELECT path, type, description, added_at
+            FROM project_files
+            WHERE project_id = ?
+            ORDER BY added_at DESC
+            ''', (project_id,))
+            
+            files = []
+            for row in cursor.fetchall():
+                files.append({
+                    'path': row[0],
+                    'type': row[1],
+                    'description': row[2],
+                    'added_at': row[3]
+                })
+            
+            conn.close()
+            return files
+        except Exception as e:
+            logger.error(f"Error getting project files: {e}")
+            return []
 
-def main():
+
+if __name__ == "__main__":
     """Command line interface for project manager."""
     import argparse
     
@@ -582,9 +937,7 @@ def main():
     elif args.command == "get":
         project = manager.get_project(args.id)
         if project:
-            project_with_id = project.copy()
-            project_with_id['id'] = args.id
-            print(json.dumps(project_with_id, indent=2))
+            print(json.dumps(project, indent=2))
         else:
             print(f"Project not found: {args.id}")
             sys.exit(1)
@@ -654,6 +1007,3 @@ def main():
     
     else:
         parser.print_help()
-
-if __name__ == "__main__":
-    main()

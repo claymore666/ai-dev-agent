@@ -2,7 +2,7 @@
 
 This project implements a proof of concept for an AI software development agent that can maintain context across large Python projects. The system uses retrieval-augmented generation (RAG) to provide AI code assistance with extended context awareness, and is designed to run with limited resources (4GB RAM, 32GB disk) while connecting to a networked Ollama service.
 
-**Current Version: 0.2.1** - Added CLI & Project Configuration System
+**Current Version: 0.2.4** - Added SQLite Database Integration
 
 ## Key Features
 
@@ -10,17 +10,20 @@ This project implements a proof of concept for an AI software development agent 
 - **Code Generation**: Creates Python code informed by existing project context
 - **Semantic Search**: Retrieves relevant code fragments based on meaning
 - **Project Management**: Tracks projects, files, and generation history
+- **Session Management**: Maintains persistent development sessions
+- **SQLite Storage**: Robust database backend for projects and sessions
 - **CLI Interface**: Unified command-line tool for all agent operations
 - **Docker Integration**: Runs in containers with minimal resource requirements
 - **Lightweight Design**: Optimized for systems with limited resources
 
-## What's New in v0.2.1
+## What's New in v0.2.4
 
-- **Unified CLI Interface**: A comprehensive command-line tool for all DevAgent operations
-- **Project Configuration System**: Persistent project management with metadata tracking
-- **File Tracking**: Track files and their associations with projects
-- **Generation History**: Record code generation requests and outputs
-- **Import/Export**: Share project configurations between systems
+- **SQLite-Based Storage**: Robust database for projects and sessions
+- **Relational Schema**: Proper relationships between entities
+- **Transaction Support**: Better data integrity and concurrency handling
+- **Enhanced Queries**: Improved search and filtering capabilities
+- **Automatic Migration**: Seamless transition from YAML files
+- **Persistent Sessions**: Better tracking of active sessions across commands
 
 ## Prerequisites
 
@@ -89,7 +92,7 @@ Phase 2 implements the context extension capabilities:
    - Semantic retrieval of relevant code fragments
    - Intelligent composition of new code based on existing codebase
 
-### Phase 3 (In Progress)
+### Phase 3 (Completed)
 
 Phase 3 focuses on improving usability and extending functionality:
 
@@ -99,25 +102,47 @@ Phase 3 focuses on improving usability and extending functionality:
    - Consistent command format and documentation
 
 2. **Project Configuration System** (Completed v0.2.1)
-   - YAML-based project storage
+   - Persistent project storage
    - File tracking within projects
    - Metadata and history tracking
    - Project export/import capabilities
 
-3. **Enhanced Context Selection** (Planned)
+3. **Enhanced Context Selection** (Completed v0.2.2)
    - Smarter context filtering
    - Weighted context selection
    - Improved relevance of retrieved code
+   - Multiple selection strategies
 
-4. **Session Management** (Planned)
+4. **Session Management** (Completed v0.2.3)
    - Persistent development sessions
-   - Session state tracking
-   - Resumable operations
+   - Command history tracking
+   - Context persistence across interactions
+   - Session export/import capabilities
 
-5. **Code Quality Assessment** (Planned)
+5. **SQLite Database Integration** (Completed v0.2.4)
+   - Relational database storage
+   - Transaction support
+   - Improved data integrity
+   - Better performance for complex queries
+
+### Phase 4 (Planned)
+
+Phase 4 will focus on quality and performance:
+
+1. **Code Quality Assessment**
    - Analysis of generated code
    - Quality metrics and reporting
    - Suggestions for improvement
+
+2. **Automated Testing**
+   - Test case generation
+   - Integration with testing frameworks
+   - Validation of generated code
+
+3. **Performance Optimization**
+   - Benchmark for large codebases
+   - Optimized context selection
+   - Caching strategies for improved performance
 
 ## Installation
 
@@ -150,17 +175,11 @@ Phase 3 focuses on improving usability and extending functionality:
    ./install_cli.sh
    ```
 
-6. Test the Project Configuration System:
-   ```bash
-   chmod +x test_project_config.sh
-   ./test_project_config.sh
-   ```
-
 ## Usage
 
 ### DevAgent CLI
 
-The new unified CLI provides access to all functionality:
+The unified CLI provides access to all functionality:
 
 ```bash
 # Check system status
@@ -178,73 +197,91 @@ devagent generate "Write a function to parse CSV files" --project-id my-project 
 # Search for code
 devagent search "data processing" --project-id my-project
 
-# Manage projects
-devagent project list
-devagent project get my-project
-devagent project export my-project --output my-project.json
+# Create a development session
+devagent session create "Development" --project-id my-project
+
+# View session history
+devagent session history
+
+# Close and resume sessions
+devagent session close
+devagent session load <session-id>
 ```
 
-For full CLI documentation, see [CLI_README.md](CLI_README.md).
+### Session Management
 
-### LiteLLM API
+The session management system provides persistent development state:
 
-The LiteLLM API is available at:
-- URL: http://localhost:8081
-
-You can test it with:
 ```bash
-curl -X POST http://localhost:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "ollama-codellama", "messages": [{"role": "user", "content": "Write a hello world in Python"}]}'
+# Create a new development session
+devagent session create "Feature Development" --project-id my-project
+
+# View active session information
+devagent session info
+
+# All commands automatically tracked in session history
+devagent generate "Create a user authentication function" --output auth.py
+
+# View command history
+devagent session history
+
+# Export session for backup or sharing
+devagent session export --output my_session.json
+
+# Close the current session
+devagent session close
+
+# List all available sessions
+devagent session list
+
+# Load a previous session
+devagent session load <session-id>
+
+# Import a session from another system
+devagent session import colleague_session.json
 ```
 
-### Ollama WebUI
+### Project Workflow Example
 
-The Ollama WebUI provides a user-friendly interface:
-- URL: http://localhost:8083
-
-### Qdrant Dashboard
-
-Qdrant's built-in dashboard is available at:
-- URL: http://localhost:6333/dashboard
-
-## Project Workflow Example
-
-A typical workflow using the Project Configuration System:
+A typical workflow using both Project Configuration and Session Management:
 
 1. Create a project:
    ```bash
    devagent project create "Data Processing Library" --tags data python library
    ```
 
-2. Add existing code:
+2. Create a session for this project:
    ```bash
-   devagent project add-file data-processing-library data_loader.py
+   devagent session create "Initial Development" --project-id data-processing-library
+   ```
+
+3. Add existing code:
+   ```bash
    devagent add data_loader.py --project-id data-processing-library
    ```
 
-3. Generate new code with context:
+4. Generate new code with context (tracked in session):
    ```bash
    devagent generate "Create a CSV parser that handles quoted fields" \
-     --project-id data-processing-library \
      --output csv_parser.py
    ```
 
-4. Add the generated code to the project's context:
+5. Pause development by closing the session:
    ```bash
-   devagent add csv_parser.py --project-id data-processing-library
+   devagent session close
    ```
 
-5. Generate more code that builds on previous work:
+6. Later, resume development:
    ```bash
+   # List available sessions
+   devagent session list
+   
+   # Load the previous session
+   devagent session load <session-id>
+   
+   # Continue development with full context
    devagent generate "Add JSON export functionality to the CSV parser" \
-     --project-id data-processing-library \
      --output json_exporter.py
-   ```
-
-6. Export the project:
-   ```bash
-   devagent project export data-processing-library
    ```
 
 ## Directory Structure
@@ -262,19 +299,28 @@ ai-dev-agent/
 ├── docker-compose.yml      # Docker Compose configuration
 ├── devagent.py             # Main CLI tool
 ├── project_manager.py      # Project Configuration System
+├── session_manager.py      # Session Management System
 ├── code_rag.py             # RAG framework for code generation
+├── context_selector.py     # Enhanced context selection
 ├── qdrant_helper.py        # Helper library for Qdrant
 ├── *.sh                    # Various utility scripts
 └── README.md               # This file
 ```
 
+## Data Storage
+
+- Projects and sessions are stored in an SQLite database at `~/.devagent/devagent.db`
+- Vector embeddings are stored in Qdrant
+- LLM response caching uses Redis
+- Configuration files are stored in the `configs/` directory
+
 ## Next Steps
 
-Future development will focus on the remaining Phase 3 components:
-- Enhanced context selection for more relevant code retrieval
-- Session management for persistent development sessions
-- Code quality metrics and testing framework integration
-- Iterative refinement of generated code
+Future development will focus on:
+- Code quality metrics and automated testing integration
+- Performance optimization for large codebases
+- Enhanced user experience for common workflows
+- Integration with additional development tools
 
 ## Troubleshooting
 
