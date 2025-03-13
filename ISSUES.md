@@ -3,7 +3,7 @@
 ## Problem Description
 Multiple issues have been identified with the session management and history awareness functionality, as well as project deletion:
 
-1. The AI Development Agent fails to correctly utilize session history when asked to summarize a conversation. Instead of referencing the actual interaction history, it retrieves and presents unrelated content from the vector database.
+1. ~~The AI Development Agent fails to correctly utilize session history when asked to summarize a conversation. Instead of referencing the actual interaction history, it retrieves and presents unrelated content from the vector database.~~ (FIXED)
 
 2. The `generate` command does not verify or automatically create a session when executed, leading to a disjoint user experience.
 
@@ -13,41 +13,8 @@ Multiple issues have been identified with the session management and history awa
 
 ## Reproduction Steps
 
-### Issue 1: Session History Awareness Bug
-1. Create a project:
-   ```bash
-   devagent project create "a first human hello world test" --tags flask python
-   ```
-
-2. Generate a simple hello world example:
-   ```bash
-   devagent generate "create a simple hello world example" --project-id a-first-human-hello-world-test --output result.py
-   ```
-
-3. Create a session linked to the project:
-   ```bash
-   devagent session create "test" --project-id a-first-human-hello-world-test
-   ```
-
-4. Generate another hello world example within the session:
-   ```bash
-   devagent generate "create a simple hello world example" --project-id a-first-human-hello-world-test
-   ```
-
-5. Verify session history is captured:
-   ```bash
-   devagent session history
-   ```
-
-6. Ask to extend the code to a web application:
-   ```bash
-   devagent generate "now change that file and make it a web application using bootstrap for a very nice output" --project-id a-first-human-hello-world-test
-   ```
-
-7. Request a conversation summary:
-   ```bash
-   devagent generate "can you summarize our conversation so far? can you give me a file structure of our project?" --project-id a-first-human-hello-world-test
-   ```
+### ~~Issue 1: Session History Awareness Bug~~ (FIXED)
+This issue has been resolved by adding the missing implementation to the `context_selector.py` file.
 
 ### Issue 2: Missing Session Auto-Creation
 1. Create a project:
@@ -108,11 +75,8 @@ Multiple issues have been identified with the session management and history awa
 
 ## Expected Behavior
 
-### Issue 1: Session History Awareness
-The agent should provide a summary of the actual conversation history, including:
-- Creating a simple hello world example
-- Extending it to a web application using Bootstrap
-- The file structure should reflect the Flask application created
+### ~~Issue 1: Session History Awareness~~ (FIXED)
+This issue has been fixed. The agent now correctly processes conversation meta-queries and presents appropriate summaries.
 
 ### Issue 2: Session Auto-Creation
 The agent should:
@@ -131,14 +95,8 @@ The agent should:
 
 ## Actual Behavior
 
-### Issue 1: Session History Awareness
-The agent presents an unrelated summary about a `DataLoader` class and provides a file structure that doesn't match the created application. Log output shows parsing errors:
-
-```
-2025-03-13 21:34:56,653 - context_selector - WARNING - Failed to parse code: unindent does not match any outer indentation level (<unknown>, line 4)
-2025-03-13 21:34:56,653 - context_selector - WARNING - Failed to parse code: unindent does not match any outer indentation level (<unknown>, line 4)
-2025-03-13 21:34:56,653 - context_selector - WARNING - Failed to parse code: unindent does not match any outer indentation level (<unknown>, line 4)
-```
+### ~~Issue 1: Session History Awareness~~ (FIXED)
+This issue has been resolved. The agent now properly analyzes conversation meta-queries and presents relevant summaries from the session history.
 
 ### Issue 2: Session Auto-Creation
 The `generate` command executes without checking for an active session or offering to create one, leading to a disjointed experience where users must manually create sessions.
@@ -151,19 +109,11 @@ When deleting a project, the system fails to properly clean up the project's tag
 
 ## Technical Analysis
 
-### Issue 1: Session History Awareness Bug
-1. **Context Selection System**:
-   - The agent likely uses its `context_selector.py` module for retrieving relevant context
-   - It appears to query the Qdrant vector database (`collections/code_fragments/points/search`) when generating responses
-   - The context selection appears to be prioritizing semantic similarity over session history
-
-2. **Session History Integration**:
-   - `session_manager.py` correctly captures command history
-   - However, this history doesn't appear to be effectively utilized in the RAG process for queries about the conversation itself
-
-3. **Code RAG Pipeline**:
-   - The issue may be in how the `code_rag.py` module integrates session history with vector database results
-   - The strategy selector might not be correctly interpreting meta-questions about the conversation
+### ~~Issue 1: Session History Awareness Bug~~ (FIXED)
+This issue has been fixed by implementing the missing methods in `context_selector.py`:
+- Added `_conversation_context` method to retrieve context from session history
+- Added `_extract_code_structures` and other supporting methods
+- Implementation correctly identifies conversation meta-queries and presents relevant session history
 
 ### Issue 2: Missing Session Auto-Creation
 1. **Command Handling in DevAgent CLI**:
@@ -186,21 +136,9 @@ Based on the project structure, the following files are likely involved:
 - `devagent.py` - Main CLI tool 
 - `session_manager.py` - Session Management System
 - `code_rag.py` - RAG framework for code generation
-- `context_selector.py` - Enhanced context selection
-
-## Code Examination Required
-1. How does `context_selector.py` handle query analysis for conversation summary requests?
-2. Does `code_rag.py` have special handling for meta-questions about session history?
-3. Is session history being incorporated into the context provided to the LLM?
-4. Are there filters in place to prioritize session-specific information over general code fragments?
+- `context_selector.py` - Enhanced context selection (FIXED)
 
 ## Suggested Fix Approach
-
-### For Session History Awareness:
-1. Modify the query analysis in `context_selector.py` to detect meta-questions about the conversation
-2. When such questions are detected, prioritize the session history from `session_manager.py` over vector database results
-3. Add a special context retrieval strategy for conversation summaries that directly uses session history
-4. Ensure parsing errors are handled gracefully when processing conversation history
 
 ### For Session Management:
 1. Implement auto-session creation in the `handle_generate` method in `devagent.py`:
@@ -244,6 +182,31 @@ Based on the project structure, the following files are likely involved:
            # ...
    ```
 
+### For Project Deletion:
+1. Ensure proper cleanup of project tags in the database:
+   ```python
+   # In project_manager.py, modify delete_project method
+   def delete_project(self, project_id: str) -> bool:
+       try:
+           conn = sqlite3.connect(self.db_path)
+           conn.execute("PRAGMA foreign_keys = ON")  # Ensure foreign key constraints are enabled
+           cursor = conn.cursor()
+           
+           # First explicitly delete tags
+           cursor.execute("DELETE FROM project_tags WHERE project_id = ?", (project_id,))
+           
+           # Then delete the project itself
+           cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+           
+           conn.commit()
+           conn.close()
+           
+           return True
+       except Exception as e:
+           logger.error(f"Error deleting project: {e}")
+           return False
+   ```
+
 ## System Architecture Context
 The AI Development Agent uses a Context-Extended RAG system with:
 - SQLite database for project and session storage
@@ -252,7 +215,7 @@ The AI Development Agent uses a Context-Extended RAG system with:
 - Session tracking via the session_manager.py component 
 
 The fixes should integrate with these existing components while:
-1. Improving the handling of conversation-related queries
+1. ~~Improving the handling of conversation-related queries~~ (FIXED)
 2. Enhancing the integration between command execution and session management
 3. Ensuring proper isolation of session history to commands executed during the session lifetime
 4. Fixing the project deletion mechanism to properly clean up related database records
@@ -260,7 +223,7 @@ The fixes should integrate with these existing components while:
 ## User Experience Improvement
 These fixes will significantly improve the user experience by:
 1. Making sessions more intuitive and automatic when needed
-2. Ensuring conversation summaries accurately reflect the user's actual interactions
+2. ~~Ensuring conversation summaries accurately reflect the user's actual interactions~~ (FIXED)
 3. Providing clearer guidance on session usage
 4. Eliminating confusion from history containing pre-session commands
 5. Creating a more cohesive workflow between projects and sessions
