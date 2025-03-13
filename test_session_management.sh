@@ -51,6 +51,9 @@ echo "10. Loading the session back..."
 # or from the list (step 9) and replace SESSION_ID with it
 SESSION_ID=$(ls ~/.devagent/sessions/ | head -1 | sed 's/\.yaml//')
 ./devagent.py session load $SESSION_ID
+# After loading a session
+echo "Testing if session is active after loading..."
+./devagent.py session info
 
 echo "---------------------------------------"
 echo "11. Resetting the session..."

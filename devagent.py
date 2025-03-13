@@ -14,6 +14,7 @@ import logging
 from typing import List, Dict, Any, Optional
 import json
 from datetime import datetime
+from session_manager import SessionManager
 
 # Add the current directory to the path to make imports work
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +64,7 @@ class DevAgentCLI:
         self.parser = self._create_parser()
         self.code_rag = None  # Lazily initialized when needed
         self.project_manager = ProjectManager()  # Initialize project manager
+        self.session_manager = SessionManager()  # Initialize session manager
     
     def _create_parser(self) -> argparse.ArgumentParser:
         """Create the argument parser with all supported commands."""
@@ -247,6 +249,85 @@ class DevAgentCLI:
             help="Project ID to check context against"
         )
         add_context_selection_args(analyze_parser)
+        
+                # Session command
+        session_parser = subparsers.add_parser("session", help="Manage development sessions")
+        session_subparsers = session_parser.add_subparsers(dest="session_command", help="Session subcommand")
+
+        # Session list command
+        session_list_parser = session_subparsers.add_parser("list", help="List available sessions")
+
+        # Session create command
+        session_create_parser = session_subparsers.add_parser("create", help="Create a new session")
+        session_create_parser.add_argument("name", help="Session name")
+        session_create_parser.add_argument(
+            "--description", "-d", 
+            help="Session description"
+        )
+        session_create_parser.add_argument(
+            "--project-id", "-p", 
+            help="Associated project ID"
+        )
+        session_create_parser.add_argument(
+            "--tags", "-t", 
+            nargs="+", 
+            help="Session tags"
+        )
+
+        # Session load command
+        session_load_parser = session_subparsers.add_parser("load", help="Load a session")
+        session_load_parser.add_argument("id", help="Session ID")
+
+        # Session info command (active)
+        session_info_parser = session_subparsers.add_parser("info", help="Get information about the active session")
+
+        # Session close command
+        session_close_parser = session_subparsers.add_parser("close", help="Close the active session")
+
+        # Session reset command
+        session_reset_parser = session_subparsers.add_parser("reset", help="Reset the active session")
+
+        # Session export command
+        session_export_parser = session_subparsers.add_parser("export", help="Export a session")
+        session_export_parser.add_argument(
+            "--id", 
+            help="Session ID (default: active session)"
+        )
+        session_export_parser.add_argument(
+            "--output", "-o", 
+            help="Output file path"
+        )
+
+        # Session import command
+        session_import_parser = session_subparsers.add_parser("import", help="Import a session")
+        session_import_parser.add_argument("file", help="Input file path")
+        session_import_parser.add_argument(
+            "--overwrite", 
+            action="store_true", 
+            help="Overwrite existing session"
+        )
+
+        # Session delete command
+        session_delete_parser = session_subparsers.add_parser("delete", help="Delete a session")
+        session_delete_parser.add_argument("id", help="Session ID")
+        session_delete_parser.add_argument(
+            "--confirm", 
+            action="store_true", 
+            help="Confirm deletion without prompting"
+        )
+
+        # Session history command
+        session_history_parser = session_subparsers.add_parser("history", help="Show session command history")
+        session_history_parser.add_argument(
+            "--limit", "-l", 
+            type=int, 
+            default=10, 
+            help="Maximum number of entries to display"
+        )
+        session_history_parser.add_argument(
+            "--filter", "-f", 
+            help="Filter commands containing this string"
+        )
         
         return parser
     
@@ -844,60 +925,384 @@ class DevAgentCLI:
         else:
             print("Some collections failed to initialize. Check the logs for details.")
     
+    def handle_session_list(self, args: argparse.Namespace) -> None:
+        """Handle the session list command."""
+        print("Listing available sessions...")
+        
+        sessions = self.session_manager.list_sessions()
+        
+        if sessions:
+            print(f"Found {len(sessions)} sessions:")
+            for session in sessions:
+                print(f"\nID: {session.get('id', 'unknown')}")
+                print(f"Name: {session.get('name', 'unnamed')}")
+                
+                if "description" in session and session["description"]:
+                    print(f"Description: {session['description']}")
+                
+                if "project_id" in session and session["project_id"]:
+                    print(f"Project: {session['project_id']}")
+                
+                if "status" in session:
+                    print(f"Status: {session['status']}")
+                
+                if "last_activity" in session:
+                    print(f"Last activity: {session['last_activity']}")
+        else:
+            print("No sessions found")
+
+    def handle_session_create(self, args: argparse.Namespace) -> None:
+        """Handle the session create command."""
+        print(f"Creating session: {args.name}")
+        
+        # If a project ID is provided, verify it exists
+        if args.project_id:
+            project = self.project_manager.get_project(args.project_id)
+            if not project:
+                print(f"Error: Project not found: {args.project_id}")
+                sys.exit(1)
+            
+            print(f"Associated with project: {args.project_id} ({project['name']})")
+        
+        # Create the session
+        session = self.session_manager.create_session(
+            name=args.name,
+            description=args.description,
+            project_id=args.project_id,
+            tags=args.tags
+        )
+        
+        # Print result
+        print(f"Session created successfully with ID: {session['id']}")
+        print(f"Name: {session['name']}")
+        
+        if session.get('description'):
+            print(f"Description: {session['description']}")
+        
+        if session.get('tags'):
+            print(f"Tags: {', '.join(session['tags'])}")
+        
+        print(f"Started: {session['start_time']}")
+
+    def handle_session_load(self, args: argparse.Namespace) -> None:
+        """Handle the session load command."""
+        session_id = args.id
+        print(f"Loading session: {session_id}")
+        
+        # Load the session
+        session = self.session_manager.load_session(session_id)
+        
+        if session:
+            print(f"Session loaded successfully: {session['id']}")
+            print(f"Name: {session['name']}")
+            
+            if session.get('project_id'):
+                print(f"Project: {session['project_id']}")
+                
+                # Set up environment for project if needed
+                # For example, load related data from project into context
+                project = self.project_manager.get_project(session['project_id'])
+                if project:
+                    print(f"Associated project: {project['name']}")
+                    
+                    # Add project info to session context
+                    self.session_manager.set_context_value('project_name', project['name'])
+                    self.session_manager.set_context_value('project_files', project.get('files', []))
+        else:
+            print(f"Failed to load session: {session_id}")
+            sys.exit(1)
+
+    def handle_session_info(self, args: argparse.Namespace) -> None:
+        """Handle the session info command."""
+        print("Getting active session information...")
+        
+        session = self.session_manager.get_active_session()
+        
+        if session:
+            print(f"Active session: {session['id']}")
+            print(f"Name: {session['name']}")
+            
+            if session.get('description'):
+                print(f"Description: {session['description']}")
+            
+            if session.get('project_id'):
+                print(f"Project: {session['project_id']}")
+            
+            print(f"Started: {session['start_time']}")
+            print(f"Last activity: {session['last_activity']}")
+            print(f"Status: {session.get('status', 'unknown')}")
+            
+            # Get context information
+            context = self.session_manager.session_data.get('context', {})
+            if context:
+                print("\nSession context:")
+                for key, value in context.items():
+                    if isinstance(value, dict) and len(value) > 5:
+                        print(f"  {key}: {type(value).__name__} with {len(value)} items")
+                    elif isinstance(value, list) and len(value) > 5:
+                        print(f"  {key}: List with {len(value)} items")
+                    else:
+                        # Truncate long values
+                        value_str = str(value)
+                        if len(value_str) > 50:
+                            value_str = value_str[:50] + "..."
+                        print(f"  {key}: {value_str}")
+            
+            # Get history information
+            history = self.session_manager.session_data.get('history', [])
+            if history:
+                print(f"\nCommand history: {len(history)} entries")
+                print(f"Last command: {self.session_manager.session_data.get('state', {}).get('last_command', 'none')}")
+        else:
+            print("No active session")
+            print("Use 'devagent session create' to create a new session or 'devagent session load' to load an existing one.")
+
+    def handle_session_close(self, args: argparse.Namespace) -> None:
+        """Handle the session close command."""
+        print("Closing active session...")
+        
+        session = self.session_manager.get_active_session()
+        
+        if session:
+            session_id = session['id']
+            success = self.session_manager.close_session()
+            
+            if success:
+                print(f"Session closed successfully: {session_id}")
+            else:
+                print("Failed to close session")
+                sys.exit(1)
+        else:
+            print("No active session to close")
+
+    def handle_session_reset(self, args: argparse.Namespace) -> None:
+        """Handle the session reset command."""
+        print("Resetting active session...")
+        
+        session = self.session_manager.get_active_session()
+        
+        if session:
+            session_id = session['id']
+            success = self.session_manager.reset_session()
+            
+            if success:
+                print(f"Session reset successfully: {session_id}")
+                print("History and state have been cleared, but context is preserved.")
+            else:
+                print("Failed to reset session")
+                sys.exit(1)
+        else:
+            print("No active session to reset")
+
+    def handle_session_export(self, args: argparse.Namespace) -> None:
+        """Handle the session export command."""
+        session_id = args.id
+        
+        if not session_id:
+            session = self.session_manager.get_active_session()
+            if not session:
+                print("No active session to export")
+                print("Please provide a session ID or load a session first")
+                sys.exit(1)
+            session_id = session['id']
+        
+        print(f"Exporting session: {session_id}")
+        
+        # Export the session
+        output_file = self.session_manager.export_session(session_id, args.output)
+        
+        if output_file:
+            print(f"Session exported successfully to: {output_file}")
+        else:
+            print(f"Failed to export session: {session_id}")
+            sys.exit(1)
+
+    def handle_session_import(self, args: argparse.Namespace) -> None:
+        """Handle the session import command."""
+        file_path = args.file
+        
+        print(f"Importing session from: {file_path}")
+        
+        # Import the session
+        session = self.session_manager.import_session(
+            input_file=file_path,
+            overwrite=args.overwrite
+        )
+        
+        if session:
+            print(f"Session imported successfully with ID: {session['id']}")
+            print(f"Name: {session['name']}")
+            
+            if session.get('description'):
+                print(f"Description: {session['description']}")
+            
+            if session.get('project_id'):
+                print(f"Project: {session['project_id']}")
+                
+                # Verify the project exists
+                project = self.project_manager.get_project(session['project_id'])
+                if not project:
+                    print(f"Warning: Associated project not found: {session['project_id']}")
+                    print("You may need to import the project as well.")
+        else:
+            print(f"Failed to import session from: {file_path}")
+            sys.exit(1)
+
+    def handle_session_delete(self, args: argparse.Namespace) -> None:
+        """Handle the session delete command."""
+        session_id = args.id
+        
+        # Get confirmation unless --confirm flag is used
+        if not args.confirm:
+            confirmation = input(f"Are you sure you want to delete session '{session_id}'? (y/N): ")
+            if confirmation.lower() not in ['y', 'yes']:
+                print("Deletion cancelled.")
+                return
+        
+        print(f"Deleting session: {session_id}")
+        
+        # Delete the session
+        success = self.session_manager.delete_session(session_id)
+        
+        if success:
+            print(f"Session deleted successfully: {session_id}")
+        else:
+            print(f"Failed to delete session: {session_id}")
+            sys.exit(1)
+
+    def handle_session_history(self, args: argparse.Namespace) -> None:
+        """Handle the session history command."""
+        print("Getting session command history...")
+        
+        history = self.session_manager.get_session_history(
+            limit=args.limit,
+            command_filter=args.filter
+        )
+        
+        if history:
+            print(f"Command history ({len(history)} entries):")
+            for i, entry in enumerate(history):
+                print(f"\n{i+1}. {entry.get('command', 'unknown')} - {entry.get('timestamp', 'unknown')}")
+                if "args" in entry and entry["args"]:
+                    args_str = ", ".join(f"{k}={v}" for k, v in entry["args"].items())
+                    print(f"   Args: {args_str}")
+                if "working_directory" in entry:
+                    print(f"   Directory: {entry['working_directory']}")
+                if "result" in entry:
+                    result_str = str(entry["result"])
+                    if len(result_str) > 100:
+                        result_str = result_str[:100] + "..."
+                    print(f"   Result: {result_str}")
+                if "error" in entry:
+                    print(f"   Error: {entry['error']}")
+        else:
+            print("No history found")
+            print("Check if you have an active session or try loading one first.")
+    
     def run(self, args: List[str] = None) -> None:
         """Run the CLI with the given arguments."""
-        # Parse arguments
-        args = self.parser.parse_args(args)
+        # Parse arguments 
+        args_namespace = self.parser.parse_args(args)
+
+        # Get active session to track history
+        active_session = self.session_manager.get_active_session()
+
+        # Record command in history if we have an active session
+        if active_session and args_namespace.command != "session":
+            self.session_manager.add_to_history(
+                command=args_namespace.command,
+                args=vars(args_namespace)
+            )
         
         # Configure logging based on verbosity
-        if args.verbose:
+        if args_namespace.verbose:
             logger.setLevel(logging.DEBUG)
-        elif args.quiet:
+        elif args_namespace.quiet:
             logger.setLevel(logging.ERROR)
         
         # Execute appropriate command
         try:
-            if args.command == "status":
-                self.handle_status(args)
-            elif args.command == "search":
-                self.handle_search(args)
-            elif args.command == "generate":
-                self.handle_generate(args)
-            elif args.command == "add":
-                self.handle_add(args)
-            elif args.command == "analyze":
-                self.handle_analyze(args)
-            elif args.command == "project":
-                if args.project_command == "list":
-                    self.handle_project_list(args)
-                elif args.project_command == "create":
-                    self.handle_project_create(args)
-                elif args.project_command == "get":
-                    self.handle_project_get(args)
-                elif args.project_command == "update":
-                    self.handle_project_update(args)
-                elif args.project_command == "delete":
-                    self.handle_project_delete(args)
-                elif args.project_command == "add-file":
-                    self.handle_project_add_file(args)
-                elif args.project_command == "export":
-                    self.handle_project_export(args)
-                elif args.project_command == "import":
-                    self.handle_project_import(args)
+            if args_namespace.command == "status":
+                self.handle_status(args_namespace)
+            elif args_namespace.command == "search":
+                self.handle_search(args_namespace)
+            elif args_namespace.command == "generate":
+                self.handle_generate(args_namespace)
+            elif args_namespace.command == "add":
+                self.handle_add(args_namespace)
+            elif args_namespace.command == "analyze":
+                self.handle_analyze(args_namespace)
+            elif args_namespace.command == "project":
+                if args_namespace.project_command == "list":
+                    self.handle_project_list(args_namespace)
+                elif args_namespace.project_command == "create":
+                    self.handle_project_create(args_namespace)
+                elif args_namespace.project_command == "get":
+                    self.handle_project_get(args_namespace)
+                elif args_namespace.project_command == "update":
+                    self.handle_project_update(args_namespace)
+                elif args_namespace.project_command == "delete":
+                    self.handle_project_delete(args_namespace)
+                elif args_namespace.project_command == "add-file":
+                    self.handle_project_add_file(args_namespace)
+                elif args_namespace.project_command == "export":
+                    self.handle_project_export(args_namespace)
+                elif args_namespace.project_command == "import":
+                    self.handle_project_import(args_namespace)
                 else:
                     print("Error: No project subcommand specified")
                     sys.exit(1)
-            elif args.command == "init":
-                self.handle_init(args)
+            elif args_namespace.command == "session":
+                if args_namespace.session_command == "list":
+                    self.handle_session_list(args_namespace)
+                elif args_namespace.session_command == "create":
+                    self.handle_session_create(args_namespace)
+                elif args_namespace.session_command == "load":
+                    self.handle_session_load(args_namespace)
+                elif args_namespace.session_command == "info":
+                    self.handle_session_info(args_namespace)
+                elif args_namespace.session_command == "close":
+                    self.handle_session_close(args_namespace)
+                elif args_namespace.session_command == "reset":
+                    self.handle_session_reset(args_namespace)
+                elif args_namespace.session_command == "export":
+                    self.handle_session_export(args_namespace)
+                elif args_namespace.session_command == "import":
+                    self.handle_session_import(args_namespace)
+                elif args_namespace.session_command == "delete":
+                    self.handle_session_delete(args_namespace)
+                elif args_namespace.session_command == "history":
+                    self.handle_session_history(args_namespace)
+                else:
+                    print("Error: No session subcommand specified")
+                    sys.exit(1)
+            elif args_namespace.command == "init":
+                self.handle_init(args_namespace)
             else:
                 self.parser.print_help()
         except Exception as e:
+            # Record error in session history if we have an active session
+            if active_session:
+                self.session_manager.add_to_history(
+                    command=args_namespace.command if hasattr(args_namespace, 'command') else "unknown",
+                    args=vars(args_namespace) if hasattr(args_namespace, 'command') else {},
+                    error=str(e)
+                )
+
             logger.error(f"Command failed: {e}")
             print(f"Error: {e}")
-            if args.verbose:
+            if args_namespace.verbose:
                 import traceback
                 traceback.print_exc()
             sys.exit(1)
+
+        # Record success in session history if applicable
+        if active_session and args_namespace.command != "session":
+            self.session_manager.add_to_history(
+                command=args_namespace.command,
+                args=vars(args_namespace),
+                result="Success"
+            )
 
 if __name__ == "__main__":
     cli = DevAgentCLI()

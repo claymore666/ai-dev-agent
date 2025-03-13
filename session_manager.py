@@ -155,6 +155,9 @@ class SessionManager:
             }
         }
         
+        # Add debug logging
+        logger.debug(f"Setting active session to: {session_id}")
+
         # Save session data
         self._save_session(session_id)
         
@@ -192,6 +195,8 @@ class SessionManager:
                 # Save updated session data
                 self._save_session(session_id)
             
+            # Add debug logging
+            logger.debug(f"Setting active session to: {session_id}")
             # Set as active session
             self.active_session = session_id
             
