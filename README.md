@@ -2,13 +2,25 @@
 
 This project implements a proof of concept for an AI software development agent that can maintain context across large Python projects. The system uses retrieval-augmented generation (RAG) to provide AI code assistance with extended context awareness, and is designed to run with limited resources (4GB RAM, 32GB disk) while connecting to a networked Ollama service.
 
+**Current Version: 0.2.1** - Added CLI & Project Configuration System
+
 ## Key Features
 
 - **Context Awareness**: Maintains understanding across large codebases
 - **Code Generation**: Creates Python code informed by existing project context
 - **Semantic Search**: Retrieves relevant code fragments based on meaning
+- **Project Management**: Tracks projects, files, and generation history
+- **CLI Interface**: Unified command-line tool for all agent operations
 - **Docker Integration**: Runs in containers with minimal resource requirements
 - **Lightweight Design**: Optimized for systems with limited resources
+
+## What's New in v0.2.1
+
+- **Unified CLI Interface**: A comprehensive command-line tool for all DevAgent operations
+- **Project Configuration System**: Persistent project management with metadata tracking
+- **File Tracking**: Track files and their associations with projects
+- **Generation History**: Record code generation requests and outputs
+- **Import/Export**: Share project configurations between systems
 
 ## Prerequisites
 
@@ -34,12 +46,6 @@ sudo apt-get install -y \
     python3-venv \
     docker.io \
     docker-compose
-
-# Optional: Install GitHub CLI (gh)
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-sudo apt update
-sudo apt install gh
 ```
 
 ## Components
@@ -63,7 +69,7 @@ Phase 1 sets up the core infrastructure:
    - Ollama WebUI for direct interaction with models
    - Nginx proxy for routing requests
 
-### Phase 2 (Current)
+### Phase 2 (Completed)
 
 Phase 2 implements the context extension capabilities:
 
@@ -82,6 +88,36 @@ Phase 2 implements the context extension capabilities:
    - Context-aware code generation via LiteLLM
    - Semantic retrieval of relevant code fragments
    - Intelligent composition of new code based on existing codebase
+
+### Phase 3 (In Progress)
+
+Phase 3 focuses on improving usability and extending functionality:
+
+1. **Unified CLI** (Completed v0.2.1)
+   - Comprehensive command-line interface
+   - Access to all agent functionality
+   - Consistent command format and documentation
+
+2. **Project Configuration System** (Completed v0.2.1)
+   - YAML-based project storage
+   - File tracking within projects
+   - Metadata and history tracking
+   - Project export/import capabilities
+
+3. **Enhanced Context Selection** (Planned)
+   - Smarter context filtering
+   - Weighted context selection
+   - Improved relevance of retrieved code
+
+4. **Session Management** (Planned)
+   - Persistent development sessions
+   - Session state tracking
+   - Resumable operations
+
+5. **Code Quality Assessment** (Planned)
+   - Analysis of generated code
+   - Quality metrics and reporting
+   - Suggestions for improvement
 
 ## Installation
 
@@ -105,22 +141,50 @@ Phase 2 implements the context extension capabilities:
 
 4. Start the services:
    ```bash
-   ./start.sh
+   ./start_phase2.sh
    ```
 
-5. Verify the Qdrant installation:
+5. Install the DevAgent CLI:
    ```bash
-   chmod +x test_qdrant.sh
-   ./test_qdrant.sh
+   chmod +x install_cli.sh
+   ./install_cli.sh
    ```
 
-6. Test the embedding functionality:
+6. Test the Project Configuration System:
    ```bash
-   source python-env/bin/activate
-   python3 test_embedding.py
+   chmod +x test_project_config.sh
+   ./test_project_config.sh
    ```
 
 ## Usage
+
+### DevAgent CLI
+
+The new unified CLI provides access to all functionality:
+
+```bash
+# Check system status
+devagent status
+
+# Create a new project
+devagent project create "My Project" --description "Description" --tags python api
+
+# Add code to a project
+devagent add my_file.py --project-id my-project --name "MyClass"
+
+# Generate code with context
+devagent generate "Write a function to parse CSV files" --project-id my-project --output result.py
+
+# Search for code
+devagent search "data processing" --project-id my-project
+
+# Manage projects
+devagent project list
+devagent project get my-project
+devagent project export my-project --output my-project.json
+```
+
+For full CLI documentation, see [CLI_README.md](CLI_README.md).
 
 ### LiteLLM API
 
@@ -144,76 +208,44 @@ The Ollama WebUI provides a user-friendly interface:
 Qdrant's built-in dashboard is available at:
 - URL: http://localhost:6333/dashboard
 
-### Portainer CE (Optional)
+## Project Workflow Example
 
-If you've installed Portainer using the provided script:
-- URL: http://localhost:9000
+A typical workflow using the Project Configuration System:
 
-## Redis Caching
-
-The system utilizes Redis for caching LLM responses, significantly improving performance for repeated queries.
-
-### Testing Caching
-
-Two scripts are provided to verify and monitor caching:
-
-1. Test if caching is working:
+1. Create a project:
    ```bash
-   chmod +x test_cache.sh
-   ./test_cache.sh
+   devagent project create "Data Processing Library" --tags data python library
    ```
 
-2. Monitor Redis cache statistics:
+2. Add existing code:
    ```bash
-   chmod +x monitor_redis.sh
-   ./monitor_redis.sh
+   devagent project add-file data-processing-library data_loader.py
+   devagent add data_loader.py --project-id data-processing-library
    ```
 
-## Vector Storage and Embedding
+3. Generate new code with context:
+   ```bash
+   devagent generate "Create a CSV parser that handles quoted fields" \
+     --project-id data-processing-library \
+     --output csv_parser.py
+   ```
 
-The system uses Qdrant and Sentence Transformers to store and retrieve code fragments based on semantic similarity.
+4. Add the generated code to the project's context:
+   ```bash
+   devagent add csv_parser.py --project-id data-processing-library
+   ```
 
-### Managing Code in Qdrant
+5. Generate more code that builds on previous work:
+   ```bash
+   devagent generate "Add JSON export functionality to the CSV parser" \
+     --project-id data-processing-library \
+     --output json_exporter.py
+   ```
 
-You can use the provided Python helper library:
-
-```bash
-# Activate the Python virtual environment
-source python-env/bin/activate
-
-# Check Qdrant health
-python3 qdrant_helper.py health
-
-# Initialize collections
-python3 qdrant_helper.py init
-
-# List projects
-python3 qdrant_helper.py list-projects
-
-# Delete a project
-python3 qdrant_helper.py delete-project PROJECT_ID
-```
-
-### Using the RAG System
-
-The RAG (Retrieval Augmented Generation) system allows you to generate code with context awareness:
-
-```bash
-# Activate the Python virtual environment
-source python-env/bin/activate
-
-# Test the RAG system with sample code
-python3 test_rag.py
-
-# Use the RAG system directly
-python3 code_rag.py generate --query "Write a function to parse CSV files" --project-id "your-project-id"
-
-# Add code to the index
-python3 code_rag.py add --code "path/to/your/file.py" --filename "file.py" --project-id "your-project-id" --type "class" --name "YourClass"
-
-# Search for relevant code
-python3 code_rag.py search --query "How to normalize data" --project-id "your-project-id"
-```
+6. Export the project:
+   ```bash
+   devagent project export data-processing-library
+   ```
 
 ## Directory Structure
 
@@ -228,48 +260,21 @@ ai-dev-agent/
 ├── logs/                   # Log files
 ├── python-env/             # Python virtual environment
 ├── docker-compose.yml      # Docker Compose configuration
-├── setup.sh                # Setup script for Phase 1
-├── setup_phase2.sh         # Setup script for Phase 2
-├── start.sh                # Start services script
-├── start_phase2.sh         # Start Phase 2 services script
-├── stop.sh                 # Stop services script
-├── test_litellm.sh         # Test LiteLLM connectivity
-├── test_nginx_proxy.sh     # Test Nginx proxy
-├── test_cache.sh           # Test Redis caching
-├── test_qdrant.sh          # Test Qdrant functionality
-├── test_embedding.py       # Test embedding and vector search
-├── test_rag.py             # Test RAG context-aware generation
-├── qdrant_helper.py        # Helper library for Qdrant
+├── devagent.py             # Main CLI tool
+├── project_manager.py      # Project Configuration System
 ├── code_rag.py             # RAG framework for code generation
-├── monitor_redis.sh        # Monitor Redis statistics
-├── install_portainer.sh    # Optional Portainer installer
-├── requirements.txt        # Python dependencies
+├── qdrant_helper.py        # Helper library for Qdrant
+├── *.sh                    # Various utility scripts
 └── README.md               # This file
 ```
 
 ## Next Steps
 
-After completing and validating Phase 2, proceed to Phase 3:
-- Implementing a unified CLI tool for interacting with the agent
-- Creating autonomous code generation and refinement capabilities
-- Developing project management features for tracking context
-- Implementing advanced context handling for larger codebases
-- Adding support for code debugging and testing
-
-## Example Usage Scenario
-
-The following example demonstrates how the context-extended agent can understand and generate code based on an existing codebase:
-
-1. A data science team has a repository with data loading, processing, and model training modules
-2. A developer needs to create a function that combines functionality from multiple modules
-3. Using our agent, they can query: "Write a function to combine the data loading and processing capabilities"
-4. The agent:
-   - Retrieves relevant code from the data loading and processing modules
-   - Understands the interfaces and dependencies between them
-   - Generates a new function that properly integrates the existing components
-   - Provides the developer with properly formatted, compatible code
-
-This context-aware code generation saves development time and ensures consistency with the existing codebase.
+Future development will focus on the remaining Phase 3 components:
+- Enhanced context selection for more relevant code retrieval
+- Session management for persistent development sessions
+- Code quality metrics and testing framework integration
+- Iterative refinement of generated code
 
 ## Troubleshooting
 
@@ -285,28 +290,11 @@ This context-aware code generation saves development time and ensures consistenc
    - Ensure ports 8081-8083, 6333-6334, 6379 are available
    - Check logs with `docker-compose logs`
 
-3. **Caching not working**
-   - Verify Redis is running with `docker ps | grep redis`
-   - Check Redis connectivity with `docker exec redis redis-cli PING`
-   - Review Redis logs with `docker logs redis`
-
-4. **Qdrant issues**
-   - Check Qdrant health with `curl http://localhost:6333/health`
-   - Verify volume mounts with `docker inspect qdrant`
-   - Check Qdrant logs with `docker logs qdrant`
-
-5. **Embedding problems**
+3. **CLI tool issues**
    - Ensure the Python virtual environment is activated
-   - Verify Sentence Transformers installation
-   - Check for network connectivity issues when downloading models
+   - Verify all required Python dependencies are installed
+   - Check `devagent.log` for detailed error information
 
-6. **Resource Constraints**
-   - Monitor resource usage with `docker stats`
-   - Adjust memory limits in docker-compose.yml if needed
+## License
 
-7. **Dependency Issues**
-   - If you encounter `bc` not found errors in scripts, install with `sudo apt install bc`
-   - If you encounter `jq` not found errors in test scripts, install with `sudo apt install jq`
-   - If Python scripts fail with import errors, ensure you've activated the virtual environment with `source python-env/bin/activate`
-   - If Docker commands fail with permission errors, add your user to the docker group with `sudo usermod -aG docker $USER` and then log out and back in
-   - If you get "python: command not found" errors, use `python3` instead as many Debian-based systems don't have a `python` command linked to Python 3
+This project is released under the MIT License. See the [LICENSE](LICENSE) file for details.

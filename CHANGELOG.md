@@ -1,6 +1,31 @@
 # Changelog
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
+## [0.2.2] - Unreleased
+
+### Added
+- Enhanced Context Selection system with multiple selection strategies:
+  - Semantic: Pure semantic similarity-based selection
+  - Structural: Code structure-aware selection prioritizing classes, functions, and variables
+  - Dependency: Dependency-aware selection that includes imports and references
+  - Balanced: Combined approach using all strategies
+  - Auto: Intelligent strategy selection based on query analysis
+- Context Analyzer for understanding code structures and dependencies
+- Query complexity analysis to automatically determine optimal context strategy
+- New `analyze` command for examining queries and recommending strategies
+- Context strategy options for code generation and search commands
+- Tracking of context strategies used in project metadata
+
+### Changed
+- Improved code generation quality through better context selection
+- Enhanced search results with structure-aware ranking
+- Updated CLI with additional context selection options
+- Refined integration between CLI and RAG components
+
+### Fixed
+- More accurate context retrieval for complex queries
+- Better handling of code dependencies during context selection
+- Improved relevance of search results for code-specific terminology
 
 ## [0.2.1] - 2025-03-13
 

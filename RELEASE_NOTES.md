@@ -1,66 +1,93 @@
-# Release Notes v0.2.0 - Context Extension with RAG
+# Release Notes: v0.2.1 - CLI & Project Management
 
 ## Overview
 
-This release marks the completion of Phase 2 of the Context-Extended AI Software Development Agent POC. We've successfully implemented a Retrieval-Augmented Generation (RAG) system that enables AI-assisted code generation with awareness of the broader codebase context. This represents a significant step toward our goal of creating an AI agent that can understand and work across large Python projects.
+Version 0.2.1 enhances the Context-Extended AI Software Development Agent with a unified command-line interface and a comprehensive project management system. These additions mark the first milestone of Phase 3, focusing on usability and structured project organization. The new features maintain compatibility with the vector database and RAG capabilities from v0.2.0.
 
-## Key Features Added
+## Key Features
 
-### Vector Database (Qdrant)
-- Added Qdrant container for efficient vector storage
-- Implemented collections for code fragments and project metadata
-- Created APIs for storing, retrieving, and managing code semantics
+### Unified Command Line Interface
+- A comprehensive CLI tool (`devagent.py`) for all agent operations
+- Consistent command structure with extensive help documentation
+- Status monitoring for all system components
+- Unified access to code search, generation, and project management
+- Flexible output options for both interactive and script-based usage
 
-### Code Embeddings
-- Integrated Sentence Transformers with all-MiniLM-L6-v2 model
-- Added support for embedding code at function, class, and module levels
-- Implemented semantic search for code fragments
+### Project Configuration System
+- Persistent YAML-based project storage
+- Complete metadata tracking for projects and files
+- Support for tagging, descriptions, and other organization metadata
+- File tracking within project contexts
+- Code generation history recording
+- JSON export/import for project configurations
 
-### RAG Framework
-- Created a complete RAG pipeline using LlamaIndex
-- Integrated with LiteLLM for communicating with Ollama models
-- Implemented context-aware code generation
-- Added support for multi-file code context retrieval
+### Integration Improvements
+- Seamless interaction between projects and the vector database
+- Automatic updating of project metadata during code operations
+- Improved error handling and user feedback
+- Better validation of inputs and operations
 
-### Testing & Utilities
-- Comprehensive test scripts for each component
-- Example code for data science workflows
-- Commands for managing the vector database
-- Direct API access for code generation
+## Detailed Changes
 
-## Technical Details
+### New Scripts & Components
+- `devagent.py`: Main CLI tool for all operations
+- `project_manager.py`: Core component for project management
+- `install_cli.sh`: Installation script for the CLI tool
+- `test_project_config.sh`: Test script for project management features
+- `CLI_README.md`: Comprehensive documentation for CLI usage
 
-### Docker Integration
-- Qdrant container with persistent storage
-- Proper network configuration for inter-service communication
-- Resource limits optimized for systems with 4GB RAM
+### Enhanced Workflows
+- Create and manage projects with persistent metadata
+- Track files associated with projects
+- Add code to both project tracking and vector database in one step
+- Generate code with awareness of project context
+- Export and import project configurations for backup or sharing
 
-### Python Components
-- qdrant_helper.py: Utilities for vector database management
-- code_rag.py: RAG framework for context-aware generation
-- test scripts for validating functionality
+## Installation & Upgrade
 
-### Compatibility
-- Works with Ollama's codellama and llama2 models
-- Supports Python 3.8+ environments
-- Optimized for Debian-based systems
+Current users can upgrade with:
 
-## Example Use Cases
+```bash
+git pull
+chmod +x install_cli.sh
+./install_cli.sh
+```
 
-1. **Code Generation with Context**: Generate new functions that integrate with existing components
-2. **Semantic Code Search**: Find relevant code fragments based on natural language queries
-3. **Context-Aware Documentation**: Generate documentation informed by the broader codebase
+The CLI tool can be tested with:
 
-## Known Limitations
+```bash
+./test_project_config.sh
+```
 
-- Currently focused on Python code only
-- Requires a separate Ollama service
-- Limited to the context window of the underlying LLM
+## Example Usage
+
+```bash
+# Create a new project
+devagent project create "Data API" --tags python api web
+
+# Add existing code to the project
+devagent add api.py --project-id data-api
+
+# Generate new code with context awareness
+devagent generate "Create a rate limiting middleware" --project-id data-api --output rate_limiter.py
+
+# List all projects
+devagent project list
+
+# Export a project configuration
+devagent project export data-api --output data-api-config.json
+```
 
 ## What's Next
 
-Phase 3 will focus on:
-- Building a unified CLI interface
-- Implementing autonomous coding workflows
-- Adding project management features
-- Enhancing context handling for larger codebases
+Upcoming development will focus on:
+- Enhanced context selection for more relevant code retrieval
+- Session management for persistent development sessions
+- Code quality metrics and automated testing integration
+- Iterative refinement of generated code
+
+## Notes
+
+- All existing functionality from v0.2.0 remains fully compatible
+- Projects are stored in `~/.devagent/projects.yaml` by default
+- For complete documentation, see the updated README.md and CLI_README.md

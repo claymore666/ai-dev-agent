@@ -8,7 +8,7 @@ import os
 import sys
 import argparse
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Set
 
 from dotenv import load_dotenv
 import requests
@@ -183,6 +183,50 @@ class CodeRAG:
         
         return results
     
+    def retrieve_relevant_code_enhanced(
+        self,
+        query: str,
+        project_id: Optional[str] = None,
+        top_k: int = 5,
+        context_strategy: str = "balanced"
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant code fragments for a query using advanced context selection.
+        
+        Args:
+            query: The query to search for
+            project_id: Optional project ID to filter by
+            top_k: Number of results to return
+            context_strategy: Strategy to use for context selection
+                - "semantic": Pure semantic similarity (basic RAG)
+                - "structural": Prioritize structurally related code
+                - "dependency": Prioritize code with dependencies
+                - "balanced": Balance between semantic and structural relevance
+                - "auto": Automatically select the best strategy based on query
+            
+        Returns:
+            List of relevant code fragments with metadata
+        """
+        # Import here to avoid circular imports
+        from context_selector import ContextSelector
+        
+        # Lazy initialize the context selector
+        if not hasattr(self, '_context_selector'):
+            self._context_selector = ContextSelector(self)
+        
+        if context_strategy == "auto":
+            # Auto-select strategy based on query complexity
+            analysis = self._context_selector.analyze_query_complexity(query)
+            context_strategy = analysis["optimal_strategy"]
+        
+        # Use the context selector to get enhanced results
+        return self._context_selector.select_context(
+            query=query,
+            project_id=project_id,
+            max_contexts=top_k,
+            context_strategy=context_strategy
+        )
+    
     def generate_with_context(
         self,
         query: str,
@@ -272,6 +316,43 @@ Based on the following code context:
             print(error_message)
             return f"Error: {error_message}"
 
+    def generate_with_enhanced_context(
+        self,
+        query: str,
+        project_id: Optional[str] = None,
+        context_strategy: str = "auto",
+        top_k: int = 5,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """
+        Generate a response with enhanced context selection.
+        
+        Args:
+            query: The query to answer
+            project_id: Optional project ID to filter by
+            context_strategy: Strategy for context selection
+            top_k: Number of context fragments to retrieve
+            system_prompt: Optional system prompt
+            
+        Returns:
+            Generated response
+        """
+        # Retrieve context with enhanced selection
+        context_results = self.retrieve_relevant_code_enhanced(
+            query=query, 
+            project_id=project_id,
+            top_k=top_k,
+            context_strategy=context_strategy
+        )
+        
+        # Use the existing generation method with the enhanced context
+        return self.generate_with_context(
+            query=query,
+            project_id=project_id,
+            context_results=context_results,
+            system_prompt=system_prompt
+        )
+
 def main():
     """Command-line interface for CodeRAG."""
     parser = argparse.ArgumentParser(description="Code RAG for AI Development Agent")
@@ -291,12 +372,24 @@ def main():
     search_parser.add_argument("--query", required=True, help="Query to search for")
     search_parser.add_argument("--project-id", help="Optional project ID to filter by")
     search_parser.add_argument("--top-k", type=int, default=5, help="Number of results to return")
+    search_parser.add_argument(
+        "--strategy",
+        choices=["semantic", "structural", "dependency", "balanced", "auto"],
+        default="auto",
+        help="Context strategy to use (default: auto)"
+    )
     
     # Generate command
     generate_parser = subparsers.add_parser("generate", help="Generate code with context")
     generate_parser.add_argument("--query", required=True, help="Query for code generation")
     generate_parser.add_argument("--project-id", help="Optional project ID to filter by")
     generate_parser.add_argument("--system-prompt", help="Optional system prompt")
+    generate_parser.add_argument(
+        "--strategy",
+        choices=["semantic", "structural", "dependency", "balanced", "auto"],
+        default="auto",
+        help="Context strategy to use (default: auto)"
+    )
     
     args = parser.parse_args()
     
@@ -330,7 +423,21 @@ def main():
     
     elif args.command == "search":
         # Search for relevant code
-        results = rag.retrieve_relevant_code(args.query, args.project_id, args.top_k)
+        if hasattr(args, 'strategy') and args.strategy:
+            print(f"Using enhanced context selection with strategy: {args.strategy}")
+            results = rag.retrieve_relevant_code_enhanced(
+                query=args.query,
+                project_id=args.project_id,
+                top_k=args.top_k,
+                context_strategy=args.strategy
+            )
+        else:
+            # Use the original method
+            results = rag.retrieve_relevant_code(
+                query=args.query,
+                project_id=args.project_id,
+                top_k=args.top_k
+            )
         
         # Print results
         print(f"Found {len(results)} relevant code fragments:")
@@ -345,7 +452,22 @@ def main():
     
     elif args.command == "generate":
         # Generate code with context
-        response = rag.generate_with_context(args.query, args.project_id, system_prompt=args.system_prompt)
+        if hasattr(args, 'strategy') and args.strategy:
+            print(f"Using enhanced context selection with strategy: {args.strategy}")
+            response = rag.generate_with_enhanced_context(
+                query=args.query,
+                project_id=args.project_id,
+                context_strategy=args.strategy,
+                top_k=args.top_k,
+                system_prompt=args.system_prompt
+            )
+        else:
+            # Use the original method
+            response = rag.generate_with_context(
+                query=args.query,
+                project_id=args.project_id,
+                system_prompt=args.system_prompt
+            )
         
         print("\nGenerated Response:")
         print("===================")

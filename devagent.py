@@ -39,6 +39,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("devagent")
 
+# Helper function to add context selection arguments to parsers
+def add_context_selection_args(parser):
+    """Add context selection arguments to a parser."""
+    parser.add_argument(
+        "--context-strategy",
+        choices=["semantic", "structural", "dependency", "balanced", "auto"],
+        default="auto",
+        help="Strategy for context selection (default: auto)"
+    )
+    parser.add_argument(
+        "--context-count",
+        type=int,
+        default=5,
+        help="Number of context fragments to retrieve (default: 5)"
+    )
+
 class DevAgentCLI:
     """Command Line Interface for the AI Development Agent."""
     
@@ -86,6 +102,8 @@ class DevAgentCLI:
             default=5, 
             help="Maximum number of results to return"
         )
+        # Add context selection args to search parser
+        add_context_selection_args(search_parser)
         
         # Generate command
         generate_parser = subparsers.add_parser("generate", help="Generate code with context")
@@ -103,6 +121,8 @@ class DevAgentCLI:
             default="ollama-codellama", 
             help="Model to use for generation (default: ollama-codellama)"
         )
+        # Add context selection args to generate parser
+        add_context_selection_args(generate_parser)
         
         # Add command
         add_parser = subparsers.add_parser("add", help="Add code to the context database")
@@ -219,6 +239,15 @@ class DevAgentCLI:
         # Init command
         init_parser = subparsers.add_parser("init", help="Initialize or update the DevAgent environment")
         
+        # Analyze command
+        analyze_parser = subparsers.add_parser("analyze", help="Analyze a query for context selection")
+        analyze_parser.add_argument("query", help="The query to analyze")
+        analyze_parser.add_argument(
+            "--project-id", "-p", 
+            help="Project ID to check context against"
+        )
+        add_context_selection_args(analyze_parser)
+        
         return parser
     
     def _init_code_rag(self, model_name: str = "ollama-codellama") -> None:
@@ -326,12 +355,25 @@ class DevAgentCLI:
             # Initialize CodeRAG
             self._init_code_rag()
             
-            # Perform the search
-            results = self.code_rag.retrieve_relevant_code(
-                query=args.query,
-                project_id=args.project_id,
-                top_k=args.limit
-            )
+            # Perform the search with enhanced context if strategy is provided
+            if hasattr(args, 'context_strategy') and args.context_strategy:
+                print(f"Using context strategy: {args.context_strategy}")
+                print(f"Using context count: {args.context_count}")
+                
+                # Perform the search with enhanced context
+                results = self.code_rag.retrieve_relevant_code_enhanced(
+                    query=args.query,
+                    project_id=args.project_id,
+                    top_k=args.limit,
+                    context_strategy=args.context_strategy
+                )
+            else:
+                # Use the original method
+                results = self.code_rag.retrieve_relevant_code(
+                    query=args.query,
+                    project_id=args.project_id,
+                    top_k=args.limit
+                )
             
             # Display results
             print(f"\nFound {len(results)} relevant code fragments:")
@@ -390,11 +432,35 @@ class DevAgentCLI:
             # Initialize CodeRAG with the specified model
             self._init_code_rag(model_name=args.model)
             
-            # Generate code with context
-            response = self.code_rag.generate_with_context(
-                query=args.prompt,
-                project_id=args.project_id
-            )
+            # Generate code with enhanced context if strategy is provided
+            if hasattr(args, 'context_strategy') and args.context_strategy:
+                print(f"Using context strategy: {args.context_strategy}")
+                print(f"Using context count: {args.context_count}")
+                
+                # Generate code with enhanced context
+                response = self.code_rag.generate_with_enhanced_context(
+                    query=args.prompt,
+                    project_id=args.project_id,
+                    context_strategy=args.context_strategy,
+                    top_k=args.context_count,
+                    system_prompt=None  # You can add a system_prompt arg if needed
+                )
+                
+                # Update project metadata if applicable
+                if args.project_id:
+                    self.project_manager.update_project(
+                        project_id=args.project_id,
+                        metadata={
+                            "last_context_strategy": args.context_strategy,
+                            "last_context_count": args.context_count
+                        }
+                    )
+            else:
+                # Use the original method
+                response = self.code_rag.generate_with_context(
+                    query=args.prompt,
+                    project_id=args.project_id
+                )
             
             # Process and display the response
             if args.output:
@@ -489,6 +555,66 @@ class DevAgentCLI:
         except Exception as e:
             logger.error(f"Add operation failed: {e}")
             print(f"Error: Failed to add code: {e}")
+            sys.exit(1)
+    
+    def handle_analyze(self, args: argparse.Namespace) -> None:
+        """Handle the analyze command."""
+        try:
+            print(f"Analyzing query: '{args.query}'")
+            
+            # Initialize CodeRAG and context selector
+            self._init_code_rag()
+            
+            # Get the context selector from code_rag
+            if not hasattr(self.code_rag, '_context_selector'):
+                from context_selector import ContextSelector
+                self.code_rag._context_selector = ContextSelector(self.code_rag)
+            
+            context_selector = self.code_rag._context_selector
+            
+            # Analyze the query
+            analysis = context_selector.analyze_query_complexity(args.query)
+            
+            # Print analysis results
+            print("\nQuery Analysis:")
+            print(f"Word count: {analysis['word_count']}")
+            print(f"Structure count: {analysis['structure_count']}")
+            
+            print("\nDetected structures:")
+            for structure_type, items in analysis['structures'].items():
+                if items:
+                    print(f"  {structure_type.capitalize()}: {', '.join(items)}")
+                else:
+                    print(f"  {structure_type.capitalize()}: None")
+            
+            print(f"\nRecommended context strategy: {analysis['optimal_strategy']}")
+            
+            # If args has project_id, demonstrate context selection with different strategies
+            if args.project_id:
+                print("\nDemonstrating context selection with different strategies:")
+                strategies = ["semantic", "structural", "dependency", "balanced"]
+                
+                for strategy in strategies:
+                    print(f"\n--- Strategy: {strategy} ---")
+                    contexts = context_selector.select_context(
+                        query=args.query,
+                        project_id=args.project_id,
+                        max_contexts=args.context_count,
+                        context_strategy=strategy
+                    )
+                    print(f"Retrieved {len(contexts)} context fragments")
+                    
+                    # Show a brief summary of each context
+                    for i, context in enumerate(contexts):
+                        score = context.get('score', 0)
+                        print(f"  {i+1}. {context['metadata'].get('name', 'unnamed')} "
+                              f"({context['metadata'].get('type', 'unknown')}) - "
+                              f"Score: {score:.4f}")
+        except Exception as e:
+            logger.error(f"Analysis failed: {e}")
+            print(f"Error: Analysis operation failed: {e}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
     
     def handle_project_list(self, args: argparse.Namespace) -> None:
@@ -739,6 +865,8 @@ class DevAgentCLI:
                 self.handle_generate(args)
             elif args.command == "add":
                 self.handle_add(args)
+            elif args.command == "analyze":
+                self.handle_analyze(args)
             elif args.command == "project":
                 if args.project_command == "list":
                     self.handle_project_list(args)
