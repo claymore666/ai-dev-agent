@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
-## [0.2.2] - Unreleased
+## [0.2.2] - 2025-03-13
 
 ### Added
 - Enhanced Context Selection system with multiple selection strategies:
