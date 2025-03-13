@@ -70,7 +70,7 @@ echo "13. Importing a previously exported session..."
 echo "---------------------------------------"
 echo "All tests completed!"
 
-# Cleanup (commented out to allow inspection after test)
+# Cleanup (uncomment to remove test files)
 # echo "Cleaning up..."
 # rm -f $EXPORT_FILE
 # ./devagent.py session delete $SESSION_ID --confirm

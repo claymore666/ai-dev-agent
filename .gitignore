@@ -1,4 +1,5 @@
 *.log
+*.json
 .env
 python-env/
 data/
