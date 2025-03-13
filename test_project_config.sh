@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# Test script for the Project Configuration System
+# Test script for the Project Configuration System with updated context selection
 
 echo "Testing Project Configuration System..."
 
 # Ensure the scripts are executable
-chmod +x devagent.py
-chmod +x project_manager.py
+chmod +x devagent.py project_manager.py
 
 # Clear any existing test projects
 echo "Cleaning up any existing test projects..."
@@ -50,23 +49,31 @@ echo "6. Getting project details to verify the file was added..."
 ./devagent.py project get $PROJECT_ID
 
 echo "---------------------------------------"
-echo "7. Adding the file to the project's code context..."
+echo "7. Creating a session for the project..."
+./devagent.py session create "Test Session" --project-id $PROJECT_ID
+
+echo "---------------------------------------"
+echo "8. Adding the file to the project's code context..."
 ./devagent.py add $SAMPLE_FILE --project-id $PROJECT_ID --name "hello_world"
 
 echo "---------------------------------------"
-echo "8. Generating some code with the project context..."
+echo "9. Generating a function to extend the hello_world function..."
 ./devagent.py generate "Write a function that extends hello_world to greet a specific person by name" --project-id $PROJECT_ID
 
 echo "---------------------------------------"
-echo "9. Exporting the project configuration..."
+echo "10. Testing the session history awareness..."
+./devagent.py generate "Can you summarize what we've done so far in this session?" --project-id $PROJECT_ID
+
+echo "---------------------------------------"
+echo "11. Exporting the project configuration..."
 ./devagent.py project export $PROJECT_ID --output "${PROJECT_ID}_export.json"
 
 echo "---------------------------------------"
-echo "10. Updating the project..."
+echo "12. Updating the project..."
 ./devagent.py project update $PROJECT_ID --description "Updated description" --tags python cli test updated
 
 echo "---------------------------------------"
-echo "11. Getting project details to verify the update..."
+echo "13. Getting project details to verify the update..."
 ./devagent.py project get $PROJECT_ID
 
 echo "---------------------------------------"
