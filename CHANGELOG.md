@@ -2,6 +2,29 @@
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
 
+## [0.2.1] - 2025-03-13
+
+### Added
+- Unified Command Line Interface (CLI) with comprehensive command set
+- Project Configuration System for persistent project management
+- YAML-based project storage with metadata tracking
+- File tracking capabilities within projects
+- Project export/import functionality
+- Integration of project metadata with code generation
+- Code generation history tracking
+- Comprehensive test scripts for CLI and Project functionality
+
+### Changed
+- Enhanced error handling and user feedback in all components
+- Improved integration between vector database and project tracking
+- Updated documentation with examples of all new functionality
+- Refactored code for better modularity and extensibility
+
+### Fixed
+- Package detection in status command now correctly identifies all installed components
+- More robust metadata handling for code fragments
+- Better validation of project IDs and file paths
+
 ## [0.2.0] - 2025-03-12
 
 ### Added
