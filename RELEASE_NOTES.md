@@ -1,70 +1,96 @@
-# Release Notes: v0.2.5 - Session Management and Context Fixes
+# Release Notes: v0.2.6 - Jenkins CI/CD Integration
 
 ## Overview
 
-Version 0.2.5 of the Context-Extended AI Software Development Agent focuses on fixing critical bugs in the session management and context awareness systems. This release addresses several important issues that affected the reliability and integrity of the development sessions and project metadata, ensuring a more seamless and dependable experience when working with complex projects.
+Version 0.2.6 of the Context-Extended AI Software Development Agent introduces Jenkins CI/CD integration for automated testing, quality assurance, and continuous integration. This release provides a complete Docker-based setup for Jenkins and SonarQube, making it easy to establish automated quality control for the agent's development.
 
-## Key Fixes
+## Key Features
 
-### Session Management
-- Fixed auto-session creation for commands requiring context awareness
-- Corrected the handling of command history to properly respect session creation time
-- Implemented missing conversation context retrieval for meta-queries
-- Improved session persistence and reliability
+### Jenkins CI/CD Pipeline
 
-### Project Management
-- Fixed project deletion to properly clean up associated tags
-- Resolved unique constraint violations when recreating projects with the same name and tags
-- Enhanced project metadata integrity during CRUD operations
+- **Complete Docker Environment**: Ready-to-use Docker Compose setup for Jenkins and SonarQube
+- **Configuration as Code**: Reproducible Jenkins configuration using JCasC
+- **Custom Python Agent**: Specialized Jenkins agent with all necessary AI development tools
+- **Pipeline Templates**: Pre-configured pipeline templates for Python projects
+- **Automatic Test Execution**: Automated running of unit and integration tests
+- **Programmatic Job Creation**: Reliable job and folder creation through init scripts
 
-### Redis Connectivity
-- Added proper environment variables for Redis configuration
-- Fixed connectivity issues in the context selection system
-- Improved error handling and fallback mechanisms
-- Enhanced logging for better diagnostics
+### Code Quality Assurance
 
-## Improvements
+- **SonarQube Integration**: Automatic code quality scanning and reporting
+- **Test Coverage Analysis**: Tracking of code coverage metrics
+- **Static Analysis**: Automated linting and static code analysis
+- **Performance Tests**: Framework for performance testing
 
-### Enhanced Context Selection
-- Properly implemented conversation meta-query handling
-- Fixed code structure extraction and analysis
-- Improved context relevance for queries about previous interactions
-- Better handling of session history for context-aware responses
+### Reliability Improvements
 
-### Environment Integration
-- Added comprehensive environment variable handling for Redis
-- Simplified configuration approach for better maintainability
-- Improved integration between Docker and non-Docker environments
+- **Enhanced Docker Configuration**: Robust container startup and networking
+- **Plugin Management**: Reliable plugin installation with retry mechanism
+- **Error Handling**: Improved error handling for all components
+- **Permission Management**: Fixed permission issues in Docker environment
+- **Configuration Fixes**: Corrected JCasC configuration for Docker integration
 
-## Installation & Upgrade
+## Installation & Usage
 
-Current users can upgrade with:
+A comprehensive guide for setting up the Jenkins CI/CD environment is included in the `jenkins/README.md` file. The setup process involves:
+
+1. Creating the required directory structure
+2. Starting Jenkins and SonarQube with Docker Compose
+3. Configuring the custom Jenkins agent
+4. Setting up the CI/CD pipeline for your project
+
+All necessary configuration files and scripts are provided, making it easy to get started with automated quality control.
+
+## Troubleshooting
+
+If you encounter issues with Jenkins startup, particularly related to Configuration as Code errors, use the provided `fix_jenkins.sh` script:
 
 ```bash
-git pull
+chmod +x fix_jenkins.sh
+./fix_jenkins.sh
 ```
 
-The Redis configuration can now be easily customized through environment variables in the `.env` file:
-
-```
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-REDIS_DB=0
-REDIS_CACHE_EXPIRY=86400
-```
+This script fixes common issues including:
+- Configuration as Code (JCasC) attribute errors
+- DockerCloud configuration structure (moving dockerHost inside dockerApi)
+- Removing problematic configuration sections like 'jobs'
+- Jenkins home directory permissions
+- Plugin loading failures
 
 ## What's Next
 
 Future development will focus on:
-- Enhanced vector embedding for better code similarity detection
-- Performance optimizations for large projects
-- Advanced code generation with improved context utilization
-- Extended testing with complex real-world projects
+- Expanding the pipeline with deployment capabilities
+- Adding more specialized test frameworks for AI components
+- Integrating benchmarking tools for performance measurement
+- Supporting multi-branch pipelines for feature development
 
 ## Notes
 
-- This release completes the bug fixes identified in ISSUES.md
-- All critical session management and project integrity issues have been resolved
-- The system now handles conversation meta-queries correctly
-- For complete documentation, see the updated README.md
+- This release includes fixes for all known Jenkins plugin loading issues
+- The DockerCloud configuration structure has been corrected to match the expected schema
+- Job and folder creation has been moved from JCasC to init scripts for better compatibility
+- The custom Python agent includes all dependencies needed for testing the AI Development Agent
+- The Docker Compose setup is designed to work with limited resources (4GB RAM)
+- Documentation has been provided for all aspects of the CI/CD integration
+
+## Git Commands for Release
+
+To create this release:
+
+```bash
+git add .
+git commit -m "Add Jenkins CI/CD integration"
+git tag -a v0.2.6 -m "v0.2.6 - Jenkins CI/CD Integration"
+git push origin main
+git push origin v0.2.6
+```
+
+For GitHub release:
+1. Go to the GitHub repository
+2. Navigate to "Releases" 
+3. Click "Draft a new release"
+4. Select tag "v0.2.6"
+5. Add title "v0.2.6 - Jenkins CI/CD Integration"
+6. Copy the content of this release note
+7. Publish the release

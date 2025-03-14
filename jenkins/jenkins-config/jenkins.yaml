@@ -1,0 +1,67 @@
+jenkins:
+  systemMessage: "Context-Extended AI Software Development Agent CI/CD Environment"
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          name: "Administrator"
+          password: "admin"
+  
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  
+  remotingSecurity:
+    enabled: true
+  
+  numExecutors: 2
+  
+  clouds:
+    - docker:
+        name: "docker"
+        dockerApi:
+          dockerHost:
+            uri: "unix:///var/run/docker.sock"
+        templates:
+          - labelString: "docker-agent"
+            dockerTemplateBase:
+              image: "jenkins/agent:latest"
+            remoteFs: "/home/jenkins/agent"
+            connector:
+              attach:
+                user: "jenkins"
+            instanceCapStr: "5"
+
+tool:
+  git:
+    installations:
+      - name: "Default"
+        home: "git"
+  
+  sonarRunnerInstallation:
+    installations:
+      - name: "SonarQube Scanner"
+        properties:
+          - installSource:
+              installers:
+                - sonarRunnerInstaller:
+                    id: "4.7.0.2747"
+
+# Remove the 'jobs' section as it's not properly configured
+# We'll create jobs programmatically after Jenkins starts
+
+unclassified:
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"  # This is the internal container URL, no need to change
+        credentialsId: "sonarqube-token"
+
+security:
+  scriptApproval:
+    approvedSignatures:
+      - "method groovy.lang.GroovyObject invokeMethod java.lang.String java.lang.Object"
+      - "method hudson.model.ItemGroup createProject hudson.model.TopLevelItemDescriptor java.lang.String"
+      - "method jenkins.model.Jenkins getItemByFullName java.lang.String"

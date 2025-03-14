@@ -2,6 +2,63 @@
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
 
+## [0.2.6] - 2025-03-14
+
+### Added
+- Jenkins CI/CD Integration
+  - Added Docker Compose setup for Jenkins and SonarQube
+  - Created custom Jenkins Python agent for AI development
+  - Added Configuration as Code (JCasC) for reproducible setup
+  - Integrated automated testing and code quality analysis
+  - Included comprehensive documentation for Jenkins setup
+  - Added pipeline templates for Python project CI/CD
+- Improved Docker configuration for reliable container startup
+- Enhanced plugin management for Jenkins with retry mechanism
+- SonarQube integration for automated code quality analysis
+- Automatic folder and job creation through init scripts
+
+### Changed
+- Enhanced test automation with robust error handling
+- Improved container networking and communication
+- Updated Docker entrypoint mechanism for more reliable initialization
+- Modified Jenkins security settings to allow proper script execution
+- Corrected JCasC configuration to fix Docker cloud integration structure
+- Moved job creation from JCasC to Groovy initialization scripts for better compatibility
+
+### Fixed
+- Jenkins plugin loading failures during startup
+- Configuration as Code errors with DockerTemplateBase pullTimeout attribute
+- Docker cloud configuration structure (properly nested dockerHost within dockerApi)
+- Job configuration issues by creating folder and jobs programmatically
+- Permission issues with initialization scripts
+- Networking problems between Jenkins and SonarQube containers
+- Configuration path issues with Jenkins Configuration as Code
+- Docker socket permission problems- Added Docker Compose setup for Jenkins and SonarQube
+  - Created custom Jenkins Python agent for AI development
+  - Added Configuration as Code (JCasC) for reproducible setup
+  - Integrated automated testing and code quality analysis
+  - Included comprehensive documentation for Jenkins setup
+  - Added pipeline templates for Python project CI/CD
+- Improved Docker configuration for reliable container startup
+- Enhanced plugin management for Jenkins with retry mechanism
+- SonarQube integration for automated code quality analysis
+
+### Changed
+- Enhanced test automation with robust error handling
+- Improved container networking and communication
+- Updated Docker entrypoint mechanism for more reliable initialization
+- Modified Jenkins security settings to allow proper script execution
+- Corrected JCasC configuration to fix Docker cloud integration structure
+
+### Fixed
+- Jenkins plugin loading failures during startup
+- Configuration as Code errors with DockerTemplateBase pullTimeout attribute
+- Docker cloud configuration structure (properly nested dockerHost within dockerApi)
+- Permission issues with initialization scripts
+- Networking problems between Jenkins and SonarQube containers
+- Configuration path issues with Jenkins Configuration as Code
+- Docker socket permission problems
+
 ## [0.2.5] - 2025-03-14
 
 ### Fixed
