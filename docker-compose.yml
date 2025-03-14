@@ -59,7 +59,7 @@ services:
     container_name: redis
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"  # Only expose Redis locally for security
+      - "0.0.0.0:6379:6379"  # expose Redis in the network
     volumes:
       - ./data/redis:/data
     command: redis-server --save 60 1 --loglevel warning

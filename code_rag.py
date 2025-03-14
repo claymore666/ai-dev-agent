@@ -21,6 +21,13 @@ from llama_index.core.indices.vector_store import VectorStoreIndex
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.llms.litellm import LiteLLM
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+# Import Redis cache handler
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from litellm_utils.redis_cache import patch_litellm
+except ImportError:
+    patch_litellm = None
 from qdrant_client import QdrantClient
 
 # Load environment variables
@@ -63,6 +70,14 @@ class CodeRAG:
             chunk_size: Size of chunks when splitting text
         """
         self.embedding_model_name = embedding_model_name
+
+        # Apply Redis cache patch to LiteLLM if available
+        if patch_litellm:
+            patch_successful = patch_litellm()
+            if patch_successful:
+                print("LiteLLM successfully patched to use Redis cache")
+            else:
+                print("Warning: Failed to patch LiteLLM with Redis cache")
         self.llm_model_name = llm_model_name
         self.session_manager = session_manager
         
