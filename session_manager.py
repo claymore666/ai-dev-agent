@@ -539,60 +539,87 @@ class SessionManager:
                 True if successful, False otherwise
             """
             # Check if we have an active session
-            if not self.get_active_session():
+            active_session = self.get_active_session()
+            if not active_session:
                 logger.warning("No active session to add history to")
                 return False
             
-            # Get session creation time
+            # Get session creation time and convert to datetime object
             session_creation_time = None
-            if "metadata" in self.session_data and "start_time" in self.session_data["metadata"]:
-                session_creation_time = datetime.fromisoformat(self.session_data["metadata"]["start_time"])
+            try:
+                if "start_time" in active_session:
+                    session_creation_time = datetime.datetime.fromisoformat(active_session["start_time"])
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid session start time format: {e}")
             
             # Current time
-            current_time = datetime.now()
+            current_time = datetime.datetime.now()
             
             # Only add to history if session_creation_time is None (unlikely) or if the command is executed after session creation
+            # Skip commands that occurred before the session was created
             if session_creation_time is None or current_time >= session_creation_time:
-                # Create history entry
-                entry = {
-                    "timestamp": current_time.isoformat(),
-                    "command": command,
-                    "args": args or {},
-                    "working_directory": os.getcwd()
-                }
-                
-                if result is not None:
-                    entry["result"] = result
-                
-                if error is not None:
-                    entry["error"] = error
-                
-                # Add to history
-                if "history" not in self.session_data:
-                    self.session_data["history"] = []
-                
-                self.session_data["history"].append(entry)
-                
-                # Update state
-                if "state" not in self.session_data:
-                    self.session_data["state"] = {}
-                
-                self.session_data["state"]["last_command"] = command
-                
-                if result is not None:
-                    self.session_data["state"]["last_result"] = result
-                
-                # Update last activity time
-                if "metadata" in self.session_data:
-                    self.session_data["metadata"]["last_activity"] = current_time.isoformat()
-                
-                # Save session data
-                self._save_session(self.active_session)
-                
-                # Save to database
-                self.save_session_to_db(self.active_session, self.session_data)
-                
-                return True
+                try:
+                    # Create history entry
+                    entry = {
+                        "timestamp": current_time.isoformat(),
+                        "command": command,
+                        "args": args or {},
+                        "working_directory": os.getcwd()
+                    }
+                    
+                    if result is not None:
+                        entry["result"] = result
+                    
+                    if error is not None:
+                        entry["error"] = error
+                    
+                    # Add to history
+                    if "history" not in self.session_data:
+                        self.session_data["history"] = []
+                    
+                    # Check for duplicate entries - don't add the same command multiple times
+                    # This prevents issues with command recording during session creation
+                    if command == "session" and args and args.get("session_command") == "create":
+                        # Skip recording session creation commands to avoid confusion
+                        logger.debug(f"Skipping session creation command in history")
+                        return True
+                        
+                    # Filter out commands that match this exact command and arguments (to avoid duplicates)
+                    existing_entries = [
+                        h for h in self.session_data["history"]
+                        if h.get("command") == command and h.get("args") == args
+                    ]
+                    
+                    if existing_entries:
+                        logger.debug(f"Skipping duplicate command entry: {command}")
+                        return True
+                    
+                    # Add the entry
+                    self.session_data["history"].append(entry)
+                    
+                    # Update state
+                    if "state" not in self.session_data:
+                        self.session_data["state"] = {}
+                    
+                    self.session_data["state"]["last_command"] = command
+                    
+                    if result is not None:
+                        self.session_data["state"]["last_result"] = result
+                    
+                    # Update last activity time
+                    if "metadata" in self.session_data:
+                        self.session_data["metadata"]["last_activity"] = current_time.isoformat()
+                    
+                    # Save session data
+                    self._save_session(self.active_session)
+                    
+                    # Save to database
+                    self.save_session_to_db(self.active_session, self.session_data)
+                    
+                    return True
+                except Exception as e:
+                    logger.error(f"Error adding command to history: {e}")
+                    return False
             else:
                 # Command executed before session creation - do not add to history
                 logger.debug(f"Command '{command}' executed before session creation - not adding to history")

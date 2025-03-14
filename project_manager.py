@@ -481,27 +481,47 @@ class ProjectManager:
         """
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
             cursor = conn.cursor()
             
-            # First explicitly delete tags
-            cursor.execute("DELETE FROM project_tags WHERE project_id = ?", (project_id,))
+            # Begin a transaction to ensure atomicity
+            conn.execute("BEGIN TRANSACTION")
             
-            # Delete the project (cascade will delete related tags and files)
-            cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            try:
+                # First explicitly delete any associated tags
+                cursor.execute("DELETE FROM project_tags WHERE project_id = ?", (project_id,))
+                logger.debug(f"Deleted {cursor.rowcount} tags for project: {project_id}")
+                
+                # Delete any associated files
+                cursor.execute("DELETE FROM project_files WHERE project_id = ?", (project_id,))
+                logger.debug(f"Deleted {cursor.rowcount} files for project: {project_id}")
+                
+                # Now delete the project itself
+                cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                
+                # Check if any rows were affected
+                rows_affected = cursor.rowcount
+                
+                if rows_affected > 0:
+                    # Commit the transaction if the project was found and deleted
+                    conn.commit()
+                    logger.info(f"Deleted project: {project_id}")
+                    result = True
+                else:
+                    # Rollback if the project wasn't found
+                    conn.rollback()
+                    logger.error(f"Project not found for deletion: {project_id}")
+                    result = False
+            except Exception as inner_error:
+                # Rollback on any error
+                conn.rollback()
+                logger.error(f"Transaction error deleting project: {inner_error}")
+                result = False
+            finally:
+                # Always close the connection
+                conn.close()
             
-            # Check if any rows were affected
-            rows_affected = cursor.rowcount
-            
-            conn.commit()
-            conn.close()
-            
-            if rows_affected > 0:
-                logger.info(f"Deleted project: {project_id}")
-                return True
-            else:
-                logger.error(f"Project not found for deletion: {project_id}")
-                return False
+            return result
         except Exception as e:
             logger.error(f"Error deleting project: {e}")
             return False

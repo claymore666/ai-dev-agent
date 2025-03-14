@@ -491,12 +491,16 @@ class DevAgentCLI:
                 if not active_session:
                     # Auto-create a session named after the project
                     session_name = f"Session for {project['name']}"
-                    session = self.session_manager.create_session(
-                        name=session_name,
-                        description=f"Auto-created session for {project['name']}",
-                        project_id=args.project_id
-                    )
-                    print(f"Created session: {session_name} (ID: {session['id']})")
+                    try:
+                        session = self.session_manager.create_session(
+                            name=session_name,
+                            description=f"Auto-created session for {project['name']}",
+                            project_id=args.project_id
+                        )
+                        print(f"Created session: {session_name} (ID: {session['id']})")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-create session: {e}")
+                        print(f"Warning: Failed to auto-create session. Continuing without session context.")
                 
                 # Log the generation request in project metadata
                 generation_history = project.get('metadata', {}).get('generation_history', [])

@@ -239,7 +239,10 @@ class ContextSelector:
         """
         # Auto-detect if this is a conversation meta-query
         if context_strategy == "auto":
-            if self.is_conversation_meta_query(query) and session_manager:
+            # Only use conversation strategy if we have a session manager AND an active session
+            has_active_session = session_manager and session_manager.get_active_session()
+            
+            if self.is_conversation_meta_query(query) and has_active_session:
                 logger.info(f"Detected conversation meta-query: '{query}'")
                 context_strategy = "conversation"
                 logger.debug(f"Selected 'conversation' context strategy for query")

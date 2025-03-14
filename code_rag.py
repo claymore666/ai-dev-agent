@@ -70,14 +70,19 @@ class CodeRAG:
             chunk_size: Size of chunks when splitting text
         """
         self.embedding_model_name = embedding_model_name
-
+        
         # Apply Redis cache patch to LiteLLM if available
         if patch_litellm:
-            patch_successful = patch_litellm()
-            if patch_successful:
-                print("LiteLLM successfully patched to use Redis cache")
-            else:
+            try:
+                patch_successful = patch_litellm()
+                if patch_successful:
+                    print("LiteLLM successfully patched to use Redis cache")
+                else:
+                    print("Warning: Failed to patch LiteLLM with Redis cache")
+            except Exception as e:
+                print(f"Error patching LiteLLM: {e}")
                 print("Warning: Failed to patch LiteLLM with Redis cache")
+                # Continue without Redis caching
         self.llm_model_name = llm_model_name
         self.session_manager = session_manager
         
