@@ -7,6 +7,7 @@ echo "WARNING: This will reset ALL databases!"
 echo "This includes:"
 echo "  - Project database (SQLite)"
 echo "  - Session database (SQLite)"
+echo "  - Session YAML files"
 echo "  - Vector database (Qdrant)"
 echo "========================================"
 echo "All existing data will be lost!"
@@ -39,7 +40,17 @@ VACUUM;
 EOF
 echo "✅ Session database reset"
 
-# 3. Clear Qdrant vector database
+# 3. Remove session YAML files
+echo "Removing session YAML files..."
+SESSION_DIR=~/.devagent/sessions
+if [ -d "$SESSION_DIR" ]; then
+    rm -f $SESSION_DIR/*.yaml $SESSION_DIR/*.yml
+    echo "✅ Session YAML files removed"
+else
+    echo "Session directory not found, skipping YAML file cleanup"
+fi
+
+# 4. Clear Qdrant vector database
 echo "Resetting vector database (Qdrant)..."
 
 # Check if Qdrant is running
