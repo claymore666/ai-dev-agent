@@ -52,10 +52,11 @@ config = load_config()
 litellm_settings = config.get('litellm_settings', {})
 cache_params = litellm_settings.get('cache_params', {})
 
-REDIS_HOST = cache_params.get('host', 'localhost')
-REDIS_PORT = int(cache_params.get('port', 6379))
-REDIS_PASSWORD = cache_params.get('password', '')
-REDIS_DB = int(cache_params.get('db', 0))
+# Get Redis host from environment variables or config
+REDIS_HOST = os.getenv("REDIS_HOST", cache_params.get('host', 'localhost'))
+REDIS_PORT = int(os.getenv("REDIS_PORT", str(cache_params.get('port', 6379))))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", cache_params.get('password', ''))
+REDIS_DB = int(os.getenv("REDIS_DB", str(cache_params.get('db', 0))))
 REDIS_CACHE_EXPIRY = int(os.getenv("REDIS_CACHE_EXPIRY", "86400"))  # 1 day default
 
 # Server configuration
