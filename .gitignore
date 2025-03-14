@@ -1,6 +1,5 @@
 *.log
 *.json
-.env
 python-env/
 data/
 __pycache__/
