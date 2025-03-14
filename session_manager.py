@@ -519,69 +519,84 @@ class SessionManager:
         return True
     
     def add_to_history(
-        self,
-        command: str,
-        args: Optional[Dict[str, Any]] = None,
-        result: Optional[Any] = None,
-        error: Optional[str] = None
-    ) -> bool:
-        """
-        Add a command and its result to the session history.
-        
-        Args:
-            command: The command that was executed
-            args: Optional arguments that were passed to the command
-            result: Optional result of the command
-            error: Optional error message if the command failed
+            self,
+            command: str,
+            args: Optional[Dict[str, Any]] = None,
+            result: Optional[Any] = None,
+            error: Optional[str] = None
+        ) -> bool:
+            """
+            Add a command and its result to the session history.
+            Only adds commands that were executed after session creation.
             
-        Returns:
-            True if successful, False otherwise
-        """
-        # Check if we have an active session
-        if not self.get_active_session():
-            logger.warning("No active session to add history to")
-            return False
-        
-        # Create history entry
-        entry = {
-            "timestamp": datetime.datetime.now().isoformat(),
-            "command": command,
-            "args": args or {},
-            "working_directory": os.getcwd()
-        }
-        
-        if result is not None:
-            entry["result"] = result
-        
-        if error is not None:
-            entry["error"] = error
-        
-        # Add to history
-        if "history" not in self.session_data:
-            self.session_data["history"] = []
-        
-        self.session_data["history"].append(entry)
-        
-        # Update state
-        if "state" not in self.session_data:
-            self.session_data["state"] = {}
-        
-        self.session_data["state"]["last_command"] = command
-        
-        if result is not None:
-            self.session_data["state"]["last_result"] = result
-        
-        # Update last activity time
-        if "metadata" in self.session_data:
-            self.session_data["metadata"]["last_activity"] = datetime.datetime.now().isoformat()
-        
-        # Save session data
-        self._save_session(self.active_session)
-        
-        # Save to database
-        self.save_session_to_db(self.active_session, self.session_data)
-        
-        return True
+            Args:
+                command: The command that was executed
+                args: Optional arguments that were passed to the command
+                result: Optional result of the command
+                error: Optional error message if the command failed
+                
+            Returns:
+                True if successful, False otherwise
+            """
+            # Check if we have an active session
+            if not self.get_active_session():
+                logger.warning("No active session to add history to")
+                return False
+            
+            # Get session creation time
+            session_creation_time = None
+            if "metadata" in self.session_data and "start_time" in self.session_data["metadata"]:
+                session_creation_time = datetime.fromisoformat(self.session_data["metadata"]["start_time"])
+            
+            # Current time
+            current_time = datetime.now()
+            
+            # Only add to history if session_creation_time is None (unlikely) or if the command is executed after session creation
+            if session_creation_time is None or current_time >= session_creation_time:
+                # Create history entry
+                entry = {
+                    "timestamp": current_time.isoformat(),
+                    "command": command,
+                    "args": args or {},
+                    "working_directory": os.getcwd()
+                }
+                
+                if result is not None:
+                    entry["result"] = result
+                
+                if error is not None:
+                    entry["error"] = error
+                
+                # Add to history
+                if "history" not in self.session_data:
+                    self.session_data["history"] = []
+                
+                self.session_data["history"].append(entry)
+                
+                # Update state
+                if "state" not in self.session_data:
+                    self.session_data["state"] = {}
+                
+                self.session_data["state"]["last_command"] = command
+                
+                if result is not None:
+                    self.session_data["state"]["last_result"] = result
+                
+                # Update last activity time
+                if "metadata" in self.session_data:
+                    self.session_data["metadata"]["last_activity"] = current_time.isoformat()
+                
+                # Save session data
+                self._save_session(self.active_session)
+                
+                # Save to database
+                self.save_session_to_db(self.active_session, self.session_data)
+                
+                return True
+            else:
+                # Command executed before session creation - do not add to history
+                logger.debug(f"Command '{command}' executed before session creation - not adding to history")
+                return False
     
     def set_context_value(self, key: str, value: Any) -> bool:
         """
