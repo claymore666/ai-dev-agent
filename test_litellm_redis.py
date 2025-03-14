@@ -18,11 +18,55 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
 try:
-    from litellm_utils.redis_cache import RedisModelInfoCache
     from code_rag import CodeRAG
 except ImportError as e:
     print(f"Error importing modules: {e}")
     sys.exit(1)
+
+class RedisModelInfoCache:
+    """Basic class to check model info stored in Redis"""
+    
+    def __init__(self):
+        self.redis_client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            password=REDIS_PASSWORD if REDIS_PASSWORD else None,
+            db=REDIS_DB,
+            socket_timeout=5
+        )
+    
+    def get_all_models(self):
+        """Get all model info stored in Redis cache"""
+        try:
+            # Get all keys that match the litellm model pattern
+            keys = self.redis_client.keys("litellm:model:*")
+            
+            # Convert bytes to strings
+            keys = [key.decode('utf-8') if isinstance(key, bytes) else key for key in keys]
+            
+            models = {}
+            for key in keys:
+                model_name = key.split(":")[-1]
+                model_data = self.redis_client.hgetall(key)
+                
+                # Convert bytes to strings
+                model_info = {}
+                for field, value in model_data.items():
+                    field = field.decode('utf-8') if isinstance(field, bytes) else field
+                    value = value.decode('utf-8') if isinstance(value, bytes) else value
+                    
+                    # Convert numeric values
+                    if field == "max_tokens" and value.isdigit():
+                        value = int(value)
+                    
+                    model_info[field] = value
+                
+                models[model_name] = model_info
+            
+            return models
+        except Exception as e:
+            print(f"Error getting models from Redis: {e}")
+            return {}
 
 def check_redis_connection():
     """Check if Redis is accessible."""
@@ -50,7 +94,7 @@ def check_redis_cache():
     
     print(f"\nFound {len(models)} models in Redis cache:")
     for model_name, info in models.items():
-        print(f"  - {model_name}: max_tokens={info['max_tokens']}")
+        print(f"  - {model_name}: max_tokens={info.get('max_tokens', 'N/A')}")
     
     return len(models) > 0
 
