@@ -2,6 +2,30 @@
 
 All notable changes to the Context-Extended AI Software Development Agent POC will be documented in this file.
 
+## [0.2.5] - 2025-03-14
+
+### Fixed
+- Session Management and History Awareness Bugs
+  - Implemented missing conversation context retrieval in context_selector.py
+  - Fixed auto-session creation when executing commands that benefit from session context
+  - Fixed issue with pre-session commands appearing in session history
+  - Corrected project deletion to properly clean up associated tags
+- Redis Configuration
+  - Added proper environment variables for Redis configuration
+  - Fixed Redis connectivity issues in context_selector.py
+  - Improved Redis error handling and logging
+
+### Added
+- Improved session context awareness for meta-queries
+- Enhanced project cleanup when deleting projects
+- Better environment variable handling
+- Robust Redis configuration through environment variables
+
+### Changed
+- Simplified Redis configuration approach
+- Improved error reporting for Redis connection issues
+- Better logging for context selection processes
+
 ## [0.2.4] - 2025-03-13
 
 ### Added
