@@ -2,6 +2,7 @@
 *.json
 python-env/
 data/
+jenkins/
 __pycache__/
 test-project-config_export.json
 test_sample.py
